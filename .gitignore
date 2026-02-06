@@ -1,0 +1,125 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+.vs/
+*.userprefs
+*.DotSettings.user
+
+# Build results
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio
+.vscode/
+.idea/
+*.rsuser
+*.sln.docstates
+*.userprefs
+*.pidb
+*.suo
+*.user
+*.userosscache
+*.sln.docstates.user
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.pytest_cache/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+*.egg-info/
+dist/
+build/
+venv/
+env/
+ENV/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Data files
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.sqlite
+data/*.sqlite3
+
+# Video files
+videos/*.mp4
+videos/*.avi
+videos/*.mov
+videos/*.mkv
+videos/captures/*
+videos/test-samples/*
+!videos/test-samples/.gitkeep
+
+# Model files
+models/*.pt
+models/*.onnx
+models/*.pth
+models/*.h5
+models/*.weights
+!models/.gitkeep
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Docker
+.docker/
+docker-compose.override.yml
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+
+# IDE specific
+*.code-workspace
+.vscode/settings.json
+.vscode/launch.json
+
+# Test output
+TestResults/
+coverage/
+*.coverage
+.coverage.*
+
+# NuGet
+*.nupkg
+*.snupkg
+.nuget/
+packages/
+
+# Node (if we add any JS tooling)
+node_modules/
+npm-debug.log
+yarn-error.log

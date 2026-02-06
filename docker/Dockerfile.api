@@ -1,0 +1,33 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+WORKDIR /src
+
+# Copy project files
+COPY src/BaseballTracker.Core/*.csproj ./BaseballTracker.Core/
+COPY src/BaseballTracker.Infrastructure/*.csproj ./BaseballTracker.Infrastructure/
+COPY src/BaseballTracker.Api/*.csproj ./BaseballTracker.Api/
+
+# Restore dependencies
+RUN dotnet restore BaseballTracker.Api/BaseballTracker.Api.csproj
+
+# Copy source code
+COPY src/ .
+
+# Build
+RUN dotnet build BaseballTracker.Api/BaseballTracker.Api.csproj -c Release -o /app/build
+
+# Publish
+FROM build AS publish
+RUN dotnet publish BaseballTracker.Api/BaseballTracker.Api.csproj -c Release -o /app/publish /p:UseAppHost=false
+
+# Runtime image
+FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS final
+WORKDIR /app
+
+# Copy published files
+COPY --from=publish /app/publish .
+
+# Expose port
+EXPOSE 5000
+
+# Entry point
+ENTRYPOINT ["dotnet", "BaseballTracker.Api.dll"]

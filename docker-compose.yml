@@ -1,0 +1,66 @@
+version: '3.8'
+
+services:
+  # .NET API service
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.api
+    ports:
+      - "5000:5000"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/baseball-tracker.db
+      - PythonService__Endpoint=http://python-cv:8000
+    volumes:
+      - ./data:/app/data
+      - ./videos:/app/videos
+      - ./models:/app/models
+    depends_on:
+      - python-cv
+    networks:
+      - baseball-net
+    restart: unless-stopped
+
+  # Python CV service
+  python-cv:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.python
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./videos:/app/videos
+      - ./models:/app/models
+    networks:
+      - baseball-net
+    restart: unless-stopped
+
+  # Blazor Web UI (future)
+  # web:
+  #   build:
+  #     context: .
+  #     dockerfile: docker/Dockerfile.web
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     - ASPNETCORE_ENVIRONMENT=Development
+  #     - ASPNETCORE_URLS=http://+:8080
+  #     - ApiBaseUrl=http://api:5000
+  #   depends_on:
+  #     - api
+  #   networks:
+  #     - baseball-net
+  #   restart: unless-stopped
+
+networks:
+  baseball-net:
+    driver: bridge
+
+volumes:
+  data:
+  videos:
+  models:
