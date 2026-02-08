@@ -1,0 +1,38 @@
+{
+  "machine_type": "iron_mike_mp6",
+  "machine_distance_ft": 48,
+
+  "calibration": {
+    "machine_bbox_px": null,
+    "pixels_per_inch": null,
+    "home_plate_px": null,
+    "notes": "Run calibrate_cage.py to generate reference_frame.jpg, then measure the machine bounding box in pixels and enter here. Format: [x1, y1, x2, y2]"
+  },
+
+  "roi_polygon": [],
+
+  "detection": {
+    "model": "yolov8n.pt",
+    "confidence_thresholds": {
+      "sports_ball": 0.15,
+      "baseball_bat": 0.25,
+      "person": 0.70
+    },
+    "min_size_px": {
+      "person_height": 80,
+      "person_width": 40
+    },
+    "allowed_classes": [0, 32, 34]
+  },
+
+  "stationary_filter": {
+    "history_frames": 10,
+    "max_variance_px": 8.0
+  },
+
+  "tracking": {
+    "max_match_distance_px": 150,
+    "min_trajectory_frames": 3,
+    "contact_distance_px": 60
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "machines": {
+    "iron_mike_mp6": {
+      "name": "Iron Mike MP-6",
+      "dimensions_inches": { "height": 57, "width": 44, "length": 59 },
+      "weight_lbs": 610,
+      "recommended_distance_ft": { "min": 45, "max": 55, "typical": 48 },
+      "speed_range_mph": { "min": 25, "max": 80 },
+      "pitch_interval_seconds": { "min": 5, "max": 7 }
+    },
+    "iron_mike_mp4": {
+      "name": "Iron Mike MP-4",
+      "dimensions_inches": { "height": 57, "width": 44, "length": 59 },
+      "weight_lbs": 625,
+      "recommended_distance_ft": { "min": 45, "max": 55, "typical": 48 },
+      "speed_range_mph": { "min": 25, "max": 80 },
+      "pitch_interval_seconds": { "min": 5, "max": 7 }
+    },
+    "iron_mike_mp5": {
+      "name": "Iron Mike MP-5",
+      "dimensions_inches": { "height": 56, "width": 30, "length": 55 },
+      "weight_lbs": 480,
+      "recommended_distance_ft": { "min": 45, "max": 55, "typical": 48 },
+      "speed_range_mph": { "min": 25, "max": 80 },
+      "pitch_interval_seconds": { "min": 5, "max": 7 }
+    },
+    "hack_attack": {
+      "name": "Hack Attack Baseball",
+      "dimensions_inches": { "height": 63.5, "width": 30, "length": 53 },
+      "weight_lbs": 165,
+      "recommended_distance_ft": { "min": 45, "max": 60, "typical": 55 },
+      "speed_range_mph": { "min": 40, "max": 100 },
+      "pitch_interval_seconds": null
+    },
+    "jugs_bp1": {
+      "name": "JUGS BP1",
+      "dimensions_inches": { "height": 52, "width": 24, "length": 24 },
+      "weight_lbs": 75,
+      "recommended_distance_ft": { "min": 40, "max": 60, "typical": 50 },
+      "speed_range_mph": { "min": 15, "max": 70 },
+      "pitch_interval_seconds": null
+    },
+    "bata_2": {
+      "name": "BATA-2",
+      "dimensions_inches": { "height": 48, "width": 24, "length": 30 },
+      "weight_lbs": 98,
+      "recommended_distance_ft": { "min": 40, "max": 60, "typical": 50 },
+      "speed_range_mph": { "min": 25, "max": 100 },
+      "pitch_interval_seconds": null
+    }
+  }
+}
