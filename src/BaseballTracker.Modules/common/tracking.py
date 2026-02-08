@@ -60,6 +60,23 @@ class TrackedObject:
         """Scalar speed in pixels/second."""
         return self.speed_px_per_frame() * fps
 
+    def smoothed_speed_px_per_sec(self, fps: float, window: int = 3) -> float:
+        """
+        Smoothed speed using median of recent frame-to-frame speeds.
+        Filters out single-frame tracker jumps that produce fake spikes.
+        """
+        if len(self.positions) < 2:
+            return 0.0
+        recent = self.positions[-min(window + 1, len(self.positions)):]
+        speeds = []
+        for i in range(1, len(recent)):
+            dx = recent[i][0] - recent[i - 1][0]
+            dy = recent[i][1] - recent[i - 1][1]
+            speeds.append(np.sqrt(dx * dx + dy * dy) * fps)
+        if not speeds:
+            return 0.0
+        return float(np.median(speeds))
+
     def total_displacement(self) -> float:
         """Total pixel displacement from first to last position."""
         if len(self.positions) < 2:

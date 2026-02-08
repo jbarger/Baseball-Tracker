@@ -1,12 +1,13 @@
 {
   "machine_type": "iron_mike_mp6",
-  "machine_distance_ft": 48,
+  "machine_distance_ft": 60,
 
   "calibration": {
-    "machine_bbox_px": null,
+    "machine_bbox_px": [972, 441, 1035, 522],
     "pixels_per_inch": null,
     "home_plate_px": null,
-    "notes": "Run calibrate_cage.py to generate reference_frame.jpg, then measure the machine bounding box in pixels and enter here. Format: [x1, y1, x2, y2]"
+    "known_pitch_speed_mph": 47.5,
+    "notes": "60-foot mound, cage sign reads 45-50mph. Machine bbox measured via annotate.html. known_pitch_speed_mph is midpoint of sign range, used to calibrate pixel-to-mph conversion."
   },
 
   "roi_polygon": [],

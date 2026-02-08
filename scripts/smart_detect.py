@@ -139,9 +139,13 @@ def draw_tracked_objects(frame: np.ndarray, tracks: list, fps: float,
         # Bounding box
         cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
-        # Label
-        speed_px = track.speed_px_per_sec(fps)
+        # Label (use smoothed speed to avoid spike artifacts)
+        speed_px = track.smoothed_speed_px_per_sec(fps, window=3)
         speed_mph = calibration.to_mph(speed_px) if calibration.is_calibrated else None
+
+        # Cap display at 120 mph — anything higher is a tracker artifact
+        if speed_mph is not None and speed_mph > 120:
+            speed_mph = None  # fall back to px/s display
 
         if track.cls_id == BALL_CLASS:
             if speed_mph is not None:
@@ -199,7 +203,7 @@ def draw_hud(frame: np.ndarray, frame_idx: int, fps: float,
     ]
 
     if best_ball and best_ball.age >= 2:
-        speed_px = best_ball.speed_px_per_sec(fps)
+        speed_px = best_ball.smoothed_speed_px_per_sec(fps, window=3)
         speed_mph = calibration.to_mph(speed_px)
         if speed_mph is not None:
             lines.append(f"Ball speed: {speed_mph:.0f} mph ({speed_px:.0f} px/s)")
@@ -259,8 +263,10 @@ def main():
     calibration = load_calibration(config_path, machines_path)
 
     print(f"\nMachine: {calibration.machine_spec.name}")
-    print(f"Distance: {calibration.machine_distance_ft} ft")
-    print(f"Calibrated: {'YES' if calibration.is_calibrated else 'NO (pixel speed only)'}")
+    print(f"Mound: {calibration.machine_distance_ft} ft")
+    if calibration.sign_speed_mph:
+        print(f"Sign speed: {calibration.sign_speed_mph} mph (will calibrate from pitch)")
+    print(f"Calibrated: {calibration.calibration_mode}")
 
     # Detection config
     det_config = config["detection"]
@@ -325,7 +331,84 @@ def main():
     print(f"\nLoading {model_name}...")
     model = YOLO(model_name)
 
-    print(f"Processing frames...\n")
+    # ================================================================
+    # PASS 1: If sign-speed calibration is available, do a quick
+    # analysis pass to find the pitched ball's average pixel speed.
+    # Then calibrate, and do Pass 2 with correct mph overlay.
+    # If no sign speed, single pass with machine-bbox PPI.
+    # ================================================================
+    need_calibration_pass = (calibration.sign_speed_mph is not None
+                             and calibration._empirical_factor is None)
+
+    if need_calibration_pass:
+        print(f"\n--- CALIBRATION PASS: measuring pitch speed in pixels ---")
+        cal_stationary = StationaryFilter(
+            history_frames=stat_config["history_frames"],
+            max_variance_px=stat_config["max_variance_px"],
+        )
+        cal_tracker = ObjectTracker(
+            max_match_distance=track_config["max_match_distance_px"],
+        )
+        ball_speeds_px = []
+        cal_frame_idx = 0
+
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            results = model(frame, verbose=False, conf=0.10)
+            dets = yolo_to_detections(results, model, cal_frame_idx)
+            # Run filter pipeline
+            kept, _ = filter_by_roi(dets, roi_polygon)
+            kept, _ = filter_by_class(kept, allowed_classes)
+            kept, _ = filter_by_size(kept, min_sizes)
+            kept, _ = filter_by_confidence(kept, conf_thresholds)
+            kept, _ = cal_stationary.update(kept)
+            # Track
+            cal_tracker.update(kept, cal_frame_idx)
+            ball = cal_tracker.get_best_ball_track()
+            if ball and ball.age >= 2:
+                spd = ball.speed_px_per_sec(fps)
+                if spd > 50:  # minimum threshold to be a real moving ball
+                    ball_speeds_px.append(spd)
+            cal_frame_idx += 1
+
+        if ball_speeds_px:
+            # Use the median speed as the representative pitch speed
+            # (median is more robust to outliers than mean)
+            speeds_arr = np.array(ball_speeds_px)
+            median_speed = float(np.median(speeds_arr))
+            calibration.calibrate_from_pitch(median_speed)
+            print(f"  Measured {len(ball_speeds_px)} ball speed samples")
+            print(f"  Speed distribution: min={speeds_arr.min():.0f}, "
+                  f"median={median_speed:.0f}, max={speeds_arr.max():.0f} px/s")
+            print(f"  Sign speed: {calibration.sign_speed_mph} mph")
+            print(f"  Empirical factor: {calibration._empirical_factor:.6f} mph/(px/s)")
+            print(f"  Calibration mode: {calibration.calibration_mode}")
+            # Show what speed ranges map to
+            print(f"  Speed map: 449px/s={calibration.to_mph(449):.0f}mph, "
+                  f"900px/s={calibration.to_mph(900):.0f}mph, "
+                  f"1696px/s={calibration.to_mph(1696):.0f}mph")
+        else:
+            print(f"  WARNING: No moving ball detected in calibration pass.")
+            print(f"  Falling back to machine-bbox calibration.")
+
+        # Reset video to start for the render pass
+        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+
+    # ================================================================
+    # PASS 2 (or single pass): Process + annotate
+    # ================================================================
+    print(f"\nProcessing frames...\n")
+
+    # Reset filters and tracker for clean render pass
+    stationary_filter = StationaryFilter(
+        history_frames=stat_config["history_frames"],
+        max_variance_px=stat_config["max_variance_px"],
+    )
+    tracker = ObjectTracker(
+        max_match_distance=track_config["max_match_distance_px"],
+    )
 
     # Stats
     frame_idx = 0
@@ -381,9 +464,9 @@ def main():
         if ball_count > 0:
             total_tracked_ball_frames += 1
 
-        # Track max speed
+        # Track max speed (using smoothed to filter tracker jumps)
         if best_ball and best_ball.age >= 2:
-            speed_px = best_ball.speed_px_per_sec(fps)
+            speed_px = best_ball.smoothed_speed_px_per_sec(fps, window=3)
             if speed_px > max_ball_speed_px:
                 max_ball_speed_px = speed_px
                 mph = calibration.to_mph(speed_px)
@@ -445,12 +528,20 @@ def main():
     print(f"Ball tracked in:    {total_tracked_ball_frames} frames")
     print(f"Stationary clusters: {len(stationary_filter.get_stationary_positions())}")
     print(f"Contact frames:     {contact_frames if contact_frames else 'None detected'}")
+    print(f"Calibration:        {calibration.calibration_mode}")
 
-    print(f"\nMax ball speed:     {max_ball_speed_px:.0f} px/s", end="")
-    if max_ball_speed_mph > 0:
-        print(f" ({max_ball_speed_mph:.0f} mph)")
+    # Cap max displayed speed at a reasonable limit for batting cage
+    # (120 mph covers the fastest possible exit velocity off a bat)
+    MAX_REALISTIC_MPH = 120
+    if max_ball_speed_mph > MAX_REALISTIC_MPH:
+        print(f"\nMax ball speed:     {max_ball_speed_px:.0f} px/s "
+              f"(raw: {max_ball_speed_mph:.0f} mph, capped at tracker artifact)")
+        print(f"  NOTE: Speed above {MAX_REALISTIC_MPH} mph likely a tracker jump.")
+        print(f"  Pitch speed (from calibration median): ~{calibration.sign_speed_mph or '?'} mph")
+    elif max_ball_speed_mph > 0:
+        print(f"\nMax ball speed:     {max_ball_speed_px:.0f} px/s ({max_ball_speed_mph:.0f} mph)")
     else:
-        print(f" (calibrate machine bbox for mph)")
+        print(f"\nMax ball speed:     {max_ball_speed_px:.0f} px/s (no calibration available)")
 
     print(f"\nOutput: {output_path} ({file_size_mb:.1f} MB)")
     print(f"\nStationary positions found:")
