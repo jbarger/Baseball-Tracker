@@ -1,0 +1,23 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# System deps for OpenCV
+RUN apt-get update && apt-get install -y \
+    libgl1 \
+    libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python packages (cached in image)
+# Pin ultralytics>=8.3 for PyTorch 2.6+ torch.load compatibility
+RUN pip install --no-cache-dir \
+    opencv-python-headless \
+    numpy \
+    scipy \
+    "ultralytics>=8.3" \
+    pydantic
+
+# Pre-download YOLOv8 nano model so it's cached in the image
+RUN python3 -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+
+CMD ["bash"]
