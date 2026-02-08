@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Baseball Tracker — Cage Annotation Tool</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #1a1a2e;
+    color: #e0e0e0;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  /* --- Top toolbar --- */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: #16213e;
+    border-bottom: 1px solid #0f3460;
+    flex-wrap: wrap;
+  }
+  .toolbar h1 {
+    font-size: 14px;
+    color: #00d4ff;
+    margin-right: 16px;
+    white-space: nowrap;
+  }
+  .tool-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 8px;
+    border-left: 1px solid #0f3460;
+  }
+  .tool-group:first-of-type { border-left: none; }
+  .tool-group label {
+    font-size: 11px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-right: 4px;
+  }
+  .btn {
+    padding: 6px 14px;
+    border: 1px solid #0f3460;
+    background: #16213e;
+    color: #e0e0e0;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.15s;
+  }
+  .btn:hover { background: #0f3460; border-color: #00d4ff; }
+  .btn.active { background: #0f3460; border-color: #00d4ff; color: #00d4ff; }
+  .btn.danger { border-color: #e94560; }
+  .btn.danger:hover { background: #e94560; color: white; }
+  .btn.success { border-color: #00d4ff; }
+  .btn.success:hover { background: #00d4ff; color: #1a1a2e; }
+
+  /* --- Main canvas area --- */
+  .canvas-area {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    height: calc(100vh - 90px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: #111;
+  }
+  canvas {
+    cursor: crosshair;
+    image-rendering: auto;
+  }
+
+  /* --- Side panel --- */
+  .side-panel {
+    position: fixed;
+    right: 0;
+    top: 45px;
+    bottom: 0;
+    width: 340px;
+    background: #16213e;
+    border-left: 1px solid #0f3460;
+    overflow-y: auto;
+    padding: 12px;
+    font-size: 12px;
+    z-index: 10;
+  }
+  .side-panel h3 {
+    font-size: 13px;
+    color: #00d4ff;
+    margin: 12px 0 6px;
+    border-bottom: 1px solid #0f3460;
+    padding-bottom: 4px;
+  }
+  .side-panel h3:first-child { margin-top: 0; }
+  .coord-list {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    background: #0d1b2a;
+    padding: 8px;
+    border-radius: 4px;
+    margin: 4px 0;
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .coord-list .point {
+    padding: 2px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .coord-list .point:hover { background: #1a2a4a; }
+  .coord-list .point .remove {
+    cursor: pointer;
+    color: #e94560;
+    font-size: 14px;
+    padding: 0 4px;
+  }
+  .json-output {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    background: #0d1b2a;
+    color: #00ff88;
+    padding: 8px;
+    border-radius: 4px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 4px 0;
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid #0f3460;
+    user-select: all;
+  }
+
+  /* --- Status bar --- */
+  .status-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: #0d1b2a;
+    padding: 4px 16px;
+    font-size: 11px;
+    color: #888;
+    display: flex;
+    gap: 24px;
+    z-index: 20;
+    border-top: 1px solid #0f3460;
+  }
+  .status-bar .highlight { color: #00d4ff; }
+
+  /* --- Drop zone overlay --- */
+  .drop-zone {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 212, 255, 0.1);
+    border: 3px dashed #00d4ff;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    z-index: 100;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.2s;
+  }
+  .drop-zone.visible { opacity: 1; }
+  .drop-zone p { font-size: 18px; color: #00d4ff; }
+  .drop-zone small { font-size: 12px; color: #888; margin-top: 8px; }
+
+  /* --- No-image placeholder --- */
+  .placeholder {
+    text-align: center;
+    color: #555;
+  }
+  .placeholder h2 { font-size: 20px; margin-bottom: 12px; color: #888; }
+  .placeholder p { font-size: 14px; line-height: 1.8; }
+  .placeholder code {
+    background: #0d1b2a;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: #00d4ff;
+  }
+</style>
+</head>
+<body>
+
+<!-- Toolbar -->
+<div class="toolbar">
+  <h1>&#9918; Cage Annotator</h1>
+
+  <div class="tool-group">
+    <label>Mode</label>
+    <button class="btn active" id="btn-roi" onclick="setMode('roi')">ROI Polygon</button>
+    <button class="btn" id="btn-machine" onclick="setMode('machine')">Machine BBox</button>
+    <button class="btn" id="btn-home" onclick="setMode('home')">Home Plate</button>
+  </div>
+
+  <div class="tool-group">
+    <label>Actions</label>
+    <button class="btn danger" onclick="clearCurrent()">Clear Current</button>
+    <button class="btn danger" onclick="clearAll()">Clear All</button>
+    <button class="btn" onclick="undoLast()">Undo</button>
+  </div>
+
+  <div class="tool-group">
+    <label>Image</label>
+    <button class="btn" onclick="document.getElementById('file-input').click()">Load Image</button>
+    <input type="file" id="file-input" accept="image/*" style="display:none" onchange="loadImage(event)">
+    <button class="btn" onclick="loadFromVideo()">Load Video Frame</button>
+    <input type="file" id="video-input" accept="video/*" style="display:none" onchange="extractFrame(event)">
+  </div>
+
+  <div class="tool-group">
+    <label>Export</label>
+    <button class="btn success" onclick="copyConfig()">&#128203; Copy Config</button>
+    <button class="btn success" onclick="downloadConfig()">&#128190; Download JSON</button>
+  </div>
+</div>
+
+<!-- Main Area -->
+<div class="canvas-area" id="canvas-area">
+  <div class="drop-zone" id="drop-zone">
+    <p>Drop image here</p>
+    <small>reference_frame.jpg or any video frame</small>
+  </div>
+
+  <div class="placeholder" id="placeholder">
+    <h2>Drag &amp; drop a reference frame to get started</h2>
+    <p>
+      Or click <strong>Load Image</strong> to open <code>output/reference_frame.jpg</code><br>
+      Or click <strong>Load Video Frame</strong> to grab frame 0 from a video file
+    </p>
+    <p style="margin-top:20px; font-size:12px; color:#555;">
+      Generate a reference frame with:<br>
+      <code>python calibrate_cage.py /videos/clip.mov /output/reference_frame.jpg</code>
+    </p>
+  </div>
+
+  <canvas id="canvas" style="display:none"></canvas>
+</div>
+
+<!-- Side Panel -->
+<div class="side-panel" id="side-panel">
+  <h3>&#128308; ROI Polygon <span id="roi-count">(0 points)</span></h3>
+  <p style="font-size:11px; color:#888; margin-bottom:4px;">Click inside the cage net boundary to define the playing area. Points connect in order.</p>
+  <div class="coord-list" id="roi-list">No points yet</div>
+
+  <h3>&#128998; Machine BBox <span id="machine-status">(not set)</span></h3>
+  <p style="font-size:11px; color:#888; margin-bottom:4px;">Click &amp; drag a rectangle around the pitching machine.</p>
+  <div class="coord-list" id="machine-info">Not set</div>
+
+  <h3>&#11044; Home Plate <span id="home-status">(not set)</span></h3>
+  <p style="font-size:11px; color:#888; margin-bottom:4px;">Click where the batter stands.</p>
+  <div class="coord-list" id="home-info">Not set</div>
+
+  <h3>&#128196; Config Output</h3>
+  <p style="font-size:11px; color:#888; margin-bottom:4px;">Copy this into <code>cage_config.json</code></p>
+  <div class="json-output" id="json-output">{ }</div>
+</div>
+
+<!-- Status Bar -->
+<div class="status-bar">
+  <span>Mode: <span class="highlight" id="status-mode">ROI Polygon</span></span>
+  <span>Mouse: <span class="highlight" id="status-mouse">—</span></span>
+  <span>Image: <span class="highlight" id="status-image">none</span></span>
+  <span>Zoom: <span class="highlight" id="status-zoom">100%</span></span>
+</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+let mode = 'roi';          // 'roi' | 'machine' | 'home'
+let img = null;            // loaded Image object
+let imgW = 0, imgH = 0;
+
+// Annotation data (in image pixel coordinates)
+let roiPoints = [];        // [[x,y], ...]
+let machineBBox = null;    // [x1, y1, x2, y2] or null
+let homePoint = null;      // [x, y] or null
+
+// Drag state for machine bbox
+let dragging = false;
+let dragStart = null;
+let dragEnd = null;
+
+// Canvas / view state
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+let scale = 1;
+let offsetX = 0, offsetY = 0;
+
+// ============================================================
+// MODE SWITCHING
+// ============================================================
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('.toolbar .btn').forEach(b => {
+    if (b.id === 'btn-' + m) b.classList.add('active');
+    else if (b.id.startsWith('btn-')) b.classList.remove('active');
+  });
+  const names = { roi: 'ROI Polygon', machine: 'Machine BBox', home: 'Home Plate' };
+  document.getElementById('status-mode').textContent = names[m];
+  draw();
+}
+
+// ============================================================
+// IMAGE LOADING
+// ============================================================
+function loadImage(event) {
+  const file = event.target.files[0];
+  if (file) loadFile(file);
+}
+
+function loadFromVideo() {
+  document.getElementById('video-input').click();
+}
+
+function extractFrame(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  const video = document.createElement('video');
+  video.src = url;
+  video.muted = true;
+  video.onloadeddata = () => {
+    video.currentTime = 0;
+  };
+  video.onseeked = () => {
+    const c = document.createElement('canvas');
+    c.width = video.videoWidth;
+    c.height = video.videoHeight;
+    const cx = c.getContext('2d');
+    cx.drawImage(video, 0, 0);
+    c.toBlob(blob => {
+      loadFile(new File([blob], 'frame_0.jpg', { type: 'image/jpeg' }));
+      URL.revokeObjectURL(url);
+    }, 'image/jpeg', 0.95);
+  };
+}
+
+function loadFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    img = new Image();
+    img.onload = () => {
+      imgW = img.width;
+      imgH = img.height;
+      fitToScreen();
+      document.getElementById('placeholder').style.display = 'none';
+      canvas.style.display = 'block';
+      document.getElementById('status-image').textContent = `${imgW}x${imgH} — ${file.name}`;
+      draw();
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function fitToScreen() {
+  const area = document.getElementById('canvas-area');
+  const panelWidth = 340;
+  const availW = area.clientWidth - panelWidth - 20;
+  const availH = area.clientHeight - 20;
+  scale = Math.min(availW / imgW, availH / imgH, 1);
+  canvas.width = Math.round(imgW * scale);
+  canvas.height = Math.round(imgH * scale);
+  document.getElementById('status-zoom').textContent = `${Math.round(scale * 100)}%`;
+}
+
+// Drag and drop
+const canvasArea = document.getElementById('canvas-area');
+const dropZone = document.getElementById('drop-zone');
+
+canvasArea.addEventListener('dragover', e => {
+  e.preventDefault();
+  dropZone.classList.add('visible');
+});
+canvasArea.addEventListener('dragleave', () => {
+  dropZone.classList.remove('visible');
+});
+canvasArea.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('visible');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type.startsWith('image/')) loadFile(file);
+});
+
+// ============================================================
+// MOUSE EVENTS → IMAGE COORDINATES
+// ============================================================
+function canvasToImage(e) {
+  const rect = canvas.getBoundingClientRect();
+  const x = Math.round((e.clientX - rect.left) / scale);
+  const y = Math.round((e.clientY - rect.top) / scale);
+  return [Math.max(0, Math.min(x, imgW)), Math.max(0, Math.min(y, imgH))];
+}
+
+canvas.addEventListener('mousemove', e => {
+  const [x, y] = canvasToImage(e);
+  document.getElementById('status-mouse').textContent = `(${x}, ${y})`;
+
+  if (mode === 'machine' && dragging) {
+    dragEnd = [x, y];
+    draw();
+  }
+});
+
+canvas.addEventListener('mousedown', e => {
+  if (!img) return;
+  const [x, y] = canvasToImage(e);
+
+  if (mode === 'roi') {
+    roiPoints.push([x, y]);
+    updateUI();
+    draw();
+  } else if (mode === 'machine') {
+    dragging = true;
+    dragStart = [x, y];
+    dragEnd = [x, y];
+  } else if (mode === 'home') {
+    homePoint = [x, y];
+    updateUI();
+    draw();
+  }
+});
+
+canvas.addEventListener('mouseup', e => {
+  if (mode === 'machine' && dragging) {
+    dragging = false;
+    const [x, y] = canvasToImage(e);
+    dragEnd = [x, y];
+    // Normalize to [x1,y1,x2,y2] where x1<x2, y1<y2
+    const x1 = Math.min(dragStart[0], dragEnd[0]);
+    const y1 = Math.min(dragStart[1], dragEnd[1]);
+    const x2 = Math.max(dragStart[0], dragEnd[0]);
+    const y2 = Math.max(dragStart[1], dragEnd[1]);
+    if (Math.abs(x2 - x1) > 5 && Math.abs(y2 - y1) > 5) {
+      machineBBox = [x1, y1, x2, y2];
+    }
+    dragStart = null;
+    dragEnd = null;
+    updateUI();
+    draw();
+  }
+});
+
+// Right-click to remove last ROI point
+canvas.addEventListener('contextmenu', e => {
+  e.preventDefault();
+  if (mode === 'roi' && roiPoints.length > 0) {
+    roiPoints.pop();
+    updateUI();
+    draw();
+  }
+});
+
+// ============================================================
+// DRAWING
+// ============================================================
+function draw() {
+  if (!img) return;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Draw image
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+  // ROI polygon
+  if (roiPoints.length > 0) {
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([8, 4]);
+    ctx.beginPath();
+    roiPoints.forEach((p, i) => {
+      const sx = p[0] * scale;
+      const sy = p[1] * scale;
+      if (i === 0) ctx.moveTo(sx, sy);
+      else ctx.lineTo(sx, sy);
+    });
+    if (roiPoints.length > 2) ctx.closePath();
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Fill with semi-transparent overlay outside polygon
+    if (roiPoints.length >= 3) {
+      // Draw filled polygon semi-transparent
+      ctx.fillStyle = 'rgba(0, 255, 100, 0.08)';
+      ctx.beginPath();
+      roiPoints.forEach((p, i) => {
+        const sx = p[0] * scale;
+        const sy = p[1] * scale;
+        if (i === 0) ctx.moveTo(sx, sy);
+        else ctx.lineTo(sx, sy);
+      });
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Draw vertices
+    roiPoints.forEach((p, i) => {
+      const sx = p[0] * scale;
+      const sy = p[1] * scale;
+      ctx.fillStyle = i === 0 ? '#00ff88' : '#ffffff';
+      ctx.beginPath();
+      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '11px monospace';
+      ctx.fillText(`${i + 1}`, sx + 8, sy - 4);
+    });
+  }
+
+  // Machine bbox
+  const bbox = machineBBox || (dragging && dragStart && dragEnd ?
+    [Math.min(dragStart[0], dragEnd[0]), Math.min(dragStart[1], dragEnd[1]),
+     Math.max(dragStart[0], dragEnd[0]), Math.max(dragStart[1], dragEnd[1])] : null);
+
+  if (bbox) {
+    const [x1, y1, x2, y2] = bbox;
+    ctx.strokeStyle = '#ff4444';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([]);
+    ctx.strokeRect(x1 * scale, y1 * scale, (x2 - x1) * scale, (y2 - y1) * scale);
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.1)';
+    ctx.fillRect(x1 * scale, y1 * scale, (x2 - x1) * scale, (y2 - y1) * scale);
+    ctx.fillStyle = '#ff4444';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('MACHINE', x1 * scale + 4, y1 * scale - 6);
+    // Dimensions
+    ctx.font = '11px monospace';
+    ctx.fillText(`${x2 - x1}x${y2 - y1}px`, x1 * scale + 4, y2 * scale + 14);
+  }
+
+  // Home plate
+  if (homePoint) {
+    const sx = homePoint[0] * scale;
+    const sy = homePoint[1] * scale;
+    // Pentagon shape for home plate
+    ctx.fillStyle = '#ffcc00';
+    ctx.strokeStyle = '#ffcc00';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    const r = 10;
+    // Draw a diamond/pentagon
+    ctx.moveTo(sx, sy - r);
+    ctx.lineTo(sx + r, sy);
+    ctx.lineTo(sx + r * 0.6, sy + r * 0.8);
+    ctx.lineTo(sx - r * 0.6, sy + r * 0.8);
+    ctx.lineTo(sx - r, sy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.fillText('HOME', sx + 14, sy + 4);
+  }
+
+  // Mode-specific cursor hint
+  ctx.fillStyle = 'rgba(0, 212, 255, 0.8)';
+  ctx.font = '11px sans-serif';
+  const hints = {
+    roi: 'Click to add ROI point • Right-click to undo',
+    machine: 'Click & drag to draw machine bounding box',
+    home: 'Click to mark home plate / batter position',
+  };
+  ctx.fillText(hints[mode], 10, canvas.height - 8);
+}
+
+// ============================================================
+// UI UPDATES
+// ============================================================
+function updateUI() {
+  // ROI list
+  const roiList = document.getElementById('roi-list');
+  document.getElementById('roi-count').textContent = `(${roiPoints.length} points)`;
+  if (roiPoints.length === 0) {
+    roiList.innerHTML = 'No points yet — click on the frame';
+  } else {
+    roiList.innerHTML = roiPoints.map((p, i) =>
+      `<div class="point">
+        <span>${i + 1}. [${p[0]}, ${p[1]}]</span>
+        <span class="remove" onclick="removeRoiPoint(${i})">✕</span>
+      </div>`
+    ).join('');
+  }
+
+  // Machine info
+  const machineInfo = document.getElementById('machine-info');
+  const machineStatus = document.getElementById('machine-status');
+  if (machineBBox) {
+    machineStatus.textContent = '(set)';
+    const [x1, y1, x2, y2] = machineBBox;
+    machineInfo.innerHTML = `[${x1}, ${y1}, ${x2}, ${y2}]<br>Size: ${x2 - x1}x${y2 - y1} px`;
+  } else {
+    machineStatus.textContent = '(not set)';
+    machineInfo.innerHTML = 'Not set — drag a box around the machine';
+  }
+
+  // Home info
+  const homeInfo = document.getElementById('home-info');
+  const homeStatus = document.getElementById('home-status');
+  if (homePoint) {
+    homeStatus.textContent = '(set)';
+    homeInfo.innerHTML = `[${homePoint[0]}, ${homePoint[1]}]`;
+  } else {
+    homeStatus.textContent = '(not set)';
+    homeInfo.innerHTML = 'Not set — click where the batter stands';
+  }
+
+  // JSON output
+  updateJSON();
+}
+
+function updateJSON() {
+  const output = {
+    roi_polygon: roiPoints,
+    calibration: {
+      machine_bbox_px: machineBBox,
+      home_plate_px: homePoint,
+    },
+  };
+  document.getElementById('json-output').textContent = JSON.stringify(output, null, 2);
+}
+
+// ============================================================
+// ACTIONS
+// ============================================================
+function removeRoiPoint(i) {
+  roiPoints.splice(i, 1);
+  updateUI();
+  draw();
+}
+
+function undoLast() {
+  if (mode === 'roi' && roiPoints.length > 0) {
+    roiPoints.pop();
+  } else if (mode === 'machine') {
+    machineBBox = null;
+  } else if (mode === 'home') {
+    homePoint = null;
+  }
+  updateUI();
+  draw();
+}
+
+function clearCurrent() {
+  if (mode === 'roi') roiPoints = [];
+  else if (mode === 'machine') machineBBox = null;
+  else if (mode === 'home') homePoint = null;
+  updateUI();
+  draw();
+}
+
+function clearAll() {
+  roiPoints = [];
+  machineBBox = null;
+  homePoint = null;
+  updateUI();
+  draw();
+}
+
+function copyConfig() {
+  const output = {
+    roi_polygon: roiPoints,
+    calibration: {
+      machine_bbox_px: machineBBox,
+      home_plate_px: homePoint,
+      pixels_per_inch: null,
+      notes: "Generated by annotate.html — paste into cage_config.json",
+    },
+  };
+  const text = JSON.stringify(output, null, 2);
+  navigator.clipboard.writeText(text).then(() => {
+    alert('Config copied to clipboard!\n\nPaste the roi_polygon and calibration sections into config/cage_config.json');
+  }).catch(() => {
+    // Fallback
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    alert('Config copied to clipboard!');
+  });
+}
+
+function downloadConfig() {
+  const output = {
+    roi_polygon: roiPoints,
+    calibration: {
+      machine_bbox_px: machineBBox,
+      home_plate_px: homePoint,
+      pixels_per_inch: null,
+      notes: "Generated by annotate.html — paste into cage_config.json",
+    },
+  };
+  const blob = new Blob([JSON.stringify(output, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'cage_annotations.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================
+// KEYBOARD SHORTCUTS
+// ============================================================
+document.addEventListener('keydown', e => {
+  if (e.key === '1') setMode('roi');
+  else if (e.key === '2') setMode('machine');
+  else if (e.key === '3') setMode('home');
+  else if (e.key === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undoLast(); }
+  else if (e.key === 'Escape') clearCurrent();
+});
+
+// ============================================================
+// WINDOW RESIZE
+// ============================================================
+window.addEventListener('resize', () => {
+  if (img) {
+    fitToScreen();
+    draw();
+  }
+});
+
+// Init
+updateUI();
+</script>
+</body>
+</html>
