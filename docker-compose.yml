@@ -1,11 +1,6 @@
-version: '3.8'
-
 services:
-  # .NET API service
   api:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.api
+    image: baseball-tracker-api:latest
     ports:
       - "5000:5000"
     environment:
@@ -21,13 +16,9 @@ services:
       - python-cv
     networks:
       - baseball-net
-    restart: unless-stopped
 
-  # Python CV service
   python-cv:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.python
+    image: baseball-tracker-python-cv:latest
     ports:
       - "8000:8000"
     environment:
@@ -37,30 +28,7 @@ services:
       - ./models:/app/models
     networks:
       - baseball-net
-    restart: unless-stopped
-
-  # Blazor Web UI (future)
-  # web:
-  #   build:
-  #     context: .
-  #     dockerfile: docker/Dockerfile.web
-  #   ports:
-  #     - "8080:8080"
-  #   environment:
-  #     - ASPNETCORE_ENVIRONMENT=Development
-  #     - ASPNETCORE_URLS=http://+:8080
-  #     - ApiBaseUrl=http://api:5000
-  #   depends_on:
-  #     - api
-  #   networks:
-  #     - baseball-net
-  #   restart: unless-stopped
 
 networks:
   baseball-net:
     driver: bridge
-
-volumes:
-  data:
-  videos:
-  models:
