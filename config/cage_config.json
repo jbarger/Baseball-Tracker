@@ -10,7 +10,7 @@
     "notes": "60-foot mound, cage sign reads 45-50mph. Machine bbox measured via annotate.html. known_pitch_speed_mph is midpoint of sign range, used to calibrate pixel-to-mph conversion."
   },
 
-  "roi_polygon": [],
+  "roi_polygon": [[684, 1075], [689, 9], [1780, 7], [1786, 1076]],
 
   "detection": {
     "model": "yolov8n.pt",
