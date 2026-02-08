@@ -7,14 +7,7 @@ Real CV implementation will be added in Sprint 2
 """
 import time
 import random
-from typing import List
 import logging
-
-# Use relative import from parent api module
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from api import BatTrackingResult, Point3D
 
 logger = logging.getLogger(__name__)
 
@@ -29,16 +22,10 @@ class BatTracker:
     def __init__(self):
         logger.info("BatTracker initialized (STUB mode)")
     
-    def process_video(self, video_path: str) -> BatTrackingResult:
-        """
-        Process video and return bat tracking results
+    def process_video(self, video_path: str):
+        # Import inside method to avoid circular import
+        from api import BatTrackingResult, Point3D
         
-        Args:
-            video_path: Path to video file
-            
-        Returns:
-            BatTrackingResult with bat speed and swing metrics
-        """
         logger.info(f"Processing video (STUB): {video_path}")
         
         # Simulate processing time
