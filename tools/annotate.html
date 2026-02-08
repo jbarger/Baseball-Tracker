@@ -251,7 +251,7 @@
 <!-- Side Panel -->
 <div class="side-panel" id="side-panel">
   <h3>&#128308; ROI Polygon <span id="roi-count">(0 points)</span></h3>
-  <p style="font-size:11px; color:#888; margin-bottom:4px;">Click inside the cage net boundary to define the playing area. Points connect in order.</p>
+  <p style="font-size:11px; color:#888; margin-bottom:4px;">Click to add points along cage net boundary. <strong>Ctrl+click</strong> near a point to drag it. Right-click to undo last.</p>
   <div class="coord-list" id="roi-list">No points yet</div>
 
   <h3>&#128998; Machine BBox <span id="machine-status">(not set)</span></h3>
@@ -292,6 +292,11 @@ let homePoint = null;      // [x, y] or null
 let dragging = false;
 let dragStart = null;
 let dragEnd = null;
+
+// Drag state for moving ROI/home points (Ctrl+click)
+let movingPointIdx = -1;    // index into roiPoints being dragged, or -1
+let movingHome = false;     // true if dragging home plate point
+const GRAB_RADIUS = 15;     // pixel radius for grabbing a point
 
 // Canvas / view state
 const canvas = document.getElementById('canvas');
@@ -405,13 +410,59 @@ function canvasToImage(e) {
   return [Math.max(0, Math.min(x, imgW)), Math.max(0, Math.min(y, imgH))];
 }
 
+// Find nearest ROI point within grab radius (in image coords)
+function findNearestPoint(x, y) {
+  let bestIdx = -1, bestDist = Infinity;
+  for (let i = 0; i < roiPoints.length; i++) {
+    const dx = x - roiPoints[i][0];
+    const dy = y - roiPoints[i][1];
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < bestDist) { bestDist = dist; bestIdx = i; }
+  }
+  // Scale grab radius by zoom — a point at 50% zoom needs larger image-space radius
+  const grabInImagePx = GRAB_RADIUS / scale;
+  return bestDist <= grabInImagePx ? bestIdx : -1;
+}
+
 canvas.addEventListener('mousemove', e => {
   const [x, y] = canvasToImage(e);
   document.getElementById('status-mouse').textContent = `(${x}, ${y})`;
 
+  // Dragging a ROI point (Ctrl+click)
+  if (movingPointIdx >= 0) {
+    roiPoints[movingPointIdx] = [x, y];
+    updateUI();
+    draw();
+    return;
+  }
+
+  // Dragging home plate point (Ctrl+click)
+  if (movingHome) {
+    homePoint = [x, y];
+    updateUI();
+    draw();
+    return;
+  }
+
+  // Dragging machine bbox
   if (mode === 'machine' && dragging) {
     dragEnd = [x, y];
     draw();
+    return;
+  }
+
+  // Hover cursor: show grab cursor when Ctrl held near a point
+  if (e.ctrlKey || e.metaKey) {
+    if (mode === 'roi' && findNearestPoint(x, y) >= 0) {
+      canvas.style.cursor = 'grab';
+    } else if (mode === 'home' && homePoint) {
+      const dx = x - homePoint[0], dy = y - homePoint[1];
+      canvas.style.cursor = Math.sqrt(dx*dx + dy*dy) <= GRAB_RADIUS / scale ? 'grab' : 'crosshair';
+    } else {
+      canvas.style.cursor = 'crosshair';
+    }
+  } else {
+    canvas.style.cursor = 'crosshair';
   }
 });
 
@@ -419,6 +470,26 @@ canvas.addEventListener('mousedown', e => {
   if (!img) return;
   const [x, y] = canvasToImage(e);
 
+  // Ctrl+click (or Cmd+click on Mac): move existing point
+  if (e.ctrlKey || e.metaKey) {
+    if (mode === 'roi') {
+      const idx = findNearestPoint(x, y);
+      if (idx >= 0) {
+        movingPointIdx = idx;
+        canvas.style.cursor = 'grabbing';
+        return;
+      }
+    } else if (mode === 'home' && homePoint) {
+      const dx = x - homePoint[0], dy = y - homePoint[1];
+      if (Math.sqrt(dx*dx + dy*dy) <= GRAB_RADIUS / scale) {
+        movingHome = true;
+        canvas.style.cursor = 'grabbing';
+        return;
+      }
+    }
+  }
+
+  // Normal click: add/set point
   if (mode === 'roi') {
     roiPoints.push([x, y]);
     updateUI();
@@ -435,11 +506,29 @@ canvas.addEventListener('mousedown', e => {
 });
 
 canvas.addEventListener('mouseup', e => {
+  // Release moved ROI point
+  if (movingPointIdx >= 0) {
+    movingPointIdx = -1;
+    canvas.style.cursor = 'crosshair';
+    updateUI();
+    draw();
+    return;
+  }
+
+  // Release moved home plate point
+  if (movingHome) {
+    movingHome = false;
+    canvas.style.cursor = 'crosshair';
+    updateUI();
+    draw();
+    return;
+  }
+
+  // Release machine bbox drag
   if (mode === 'machine' && dragging) {
     dragging = false;
     const [x, y] = canvasToImage(e);
     dragEnd = [x, y];
-    // Normalize to [x1,y1,x2,y2] where x1<x2, y1<y2
     const x1 = Math.min(dragStart[0], dragEnd[0]);
     const y1 = Math.min(dragStart[1], dragEnd[1]);
     const x2 = Math.max(dragStart[0], dragEnd[0]);
@@ -505,13 +594,25 @@ function draw() {
       ctx.fill();
     }
 
-    // Draw vertices
+    // Draw vertices (highlight the one being moved)
     roiPoints.forEach((p, i) => {
       const sx = p[0] * scale;
       const sy = p[1] * scale;
-      ctx.fillStyle = i === 0 ? '#00ff88' : '#ffffff';
+      const isMoving = (i === movingPointIdx);
+      const radius = isMoving ? 8 : 5;
+
+      // Outer ring for active point
+      if (isMoving) {
+        ctx.strokeStyle = '#00d4ff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(sx, sy, 12, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = isMoving ? '#00d4ff' : (i === 0 ? '#00ff88' : '#ffffff');
       ctx.beginPath();
-      ctx.arc(sx, sy, 5, 0, Math.PI * 2);
+      ctx.arc(sx, sy, radius, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#ffffff';
       ctx.font = '11px monospace';
@@ -567,9 +668,9 @@ function draw() {
   ctx.fillStyle = 'rgba(0, 212, 255, 0.8)';
   ctx.font = '11px sans-serif';
   const hints = {
-    roi: 'Click to add ROI point • Right-click to undo',
+    roi: 'Click to add point • Ctrl+click to move point • Right-click to undo',
     machine: 'Click & drag to draw machine bounding box',
-    home: 'Click to mark home plate / batter position',
+    home: 'Click to place • Ctrl+click to move',
   };
   ctx.fillText(hints[mode], 10, canvas.height - 8);
 }
