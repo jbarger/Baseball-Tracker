@@ -34,6 +34,20 @@
   "tracking": {
     "max_match_distance_px": 150,
     "min_trajectory_frames": 3,
-    "contact_distance_px": 60
+    "contact_distance_px": 60,
+    "max_missed_frames": 10
+  },
+
+  "machine_exit_detector": {
+    "search_extend_right": 250,
+    "search_extend_left": 20,
+    "search_extend_vertical": 40,
+    "min_diff_intensity": 80,
+    "bg_warmup_frames": 30,
+    "bg_alpha": 0.02,
+    "min_blob_area": 4,
+    "max_blob_area": 400,
+    "max_aspect_ratio": 3.0,
+    "min_confidence": 0.75
   }
 }

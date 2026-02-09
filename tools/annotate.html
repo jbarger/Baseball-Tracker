@@ -76,6 +76,9 @@
   canvas {
     cursor: crosshair;
     image-rendering: auto;
+    position: absolute;
+    left: 0;
+    top: 0;
   }
 
   /* --- Side panel --- */
@@ -139,6 +142,67 @@
     user-select: all;
   }
 
+  /* --- Ball tracking panel styles --- */
+  .ball-track-panel { display: none; }
+  .ball-track-panel.visible { display: block; }
+  .frame-nav {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 8px 0;
+  }
+  .frame-nav .btn { padding: 4px 10px; font-size: 11px; }
+  .frame-nav .frame-num {
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    color: #00d4ff;
+    flex: 1;
+    text-align: center;
+  }
+  .ball-point-list {
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    background: #0d1b2a;
+    padding: 8px;
+    border-radius: 4px;
+    margin: 4px 0;
+    max-height: 350px;
+    overflow-y: auto;
+  }
+  .ball-point-list .entry {
+    padding: 2px 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    border-radius: 2px;
+  }
+  .ball-point-list .entry:hover { background: #1a2a4a; }
+  .ball-point-list .entry.current { background: #0f3460; color: #00d4ff; }
+  .ball-point-list .entry.marked { color: #00ff88; }
+  .ball-point-list .entry.unmarked { color: #666; }
+  .ball-point-list .entry .remove {
+    cursor: pointer;
+    color: #e94560;
+    font-size: 13px;
+    padding: 0 4px;
+    visibility: hidden;
+  }
+  .ball-point-list .entry.marked .remove { visibility: visible; }
+  .ball-point-list .entry.marked:hover .remove { visibility: visible; }
+  .progress-bar {
+    height: 4px;
+    background: #0d1b2a;
+    border-radius: 2px;
+    margin: 6px 0;
+    overflow: hidden;
+  }
+  .progress-bar .fill {
+    height: 100%;
+    background: #00d4ff;
+    transition: width 0.2s;
+  }
+
   /* --- Status bar --- */
   .status-bar {
     position: fixed;
@@ -199,9 +263,10 @@
 
   <div class="tool-group">
     <label>Mode</label>
-    <button class="btn active" id="btn-roi" onclick="setMode('roi')">ROI Polygon</button>
-    <button class="btn" id="btn-machine" onclick="setMode('machine')">Machine BBox</button>
-    <button class="btn" id="btn-home" onclick="setMode('home')">Home Plate</button>
+    <button class="btn active" id="btn-roi" onclick="setMode('roi')">1: ROI Polygon</button>
+    <button class="btn" id="btn-machine" onclick="setMode('machine')">2: Machine BBox</button>
+    <button class="btn" id="btn-home" onclick="setMode('home')">3: Home Plate</button>
+    <button class="btn" id="btn-ball" onclick="setMode('ball')">4: Ball Tracking</button>
   </div>
 
   <div class="tool-group">
@@ -217,6 +282,15 @@
     <input type="file" id="file-input" accept="image/*" style="display:none" onchange="loadImage(event)">
     <button class="btn" onclick="loadFromVideo()">Load Video Frame</button>
     <input type="file" id="video-input" accept="video/*" style="display:none" onchange="extractFrame(event)">
+    <button class="btn" id="btn-load-stills" onclick="document.getElementById('stills-input').click()" style="display:none">Load Stills</button>
+    <input type="file" id="stills-input" accept="image/*" multiple style="display:none" onchange="loadStills(event)">
+  </div>
+
+  <div class="tool-group">
+    <label>Zoom</label>
+    <button class="btn" onclick="zoomBy(1.3)" title="Zoom in (+)">+</button>
+    <button class="btn" onclick="zoomBy(1/1.3)" title="Zoom out (-)">-</button>
+    <button class="btn" onclick="resetView()" title="Fit to screen (0)">Fit</button>
   </div>
 
   <div class="tool-group">
@@ -229,8 +303,8 @@
 <!-- Main Area -->
 <div class="canvas-area" id="canvas-area">
   <div class="drop-zone" id="drop-zone">
-    <p>Drop image here</p>
-    <small>reference_frame.jpg or any video frame</small>
+    <p>Drop image(s) here</p>
+    <small>Single image for cage annotation, or multiple stills for ball tracking</small>
   </div>
 
   <div class="placeholder" id="placeholder">
@@ -239,9 +313,16 @@
       Or click <strong>Load Image</strong> to open <code>output/reference_frame.jpg</code><br>
       Or click <strong>Load Video Frame</strong> to grab frame 0 from a video file
     </p>
+    <p style="margin-top:12px; font-size:13px; color:#888;">
+      <strong>Ball Tracking mode (key 4):</strong> Load multiple still frames,<br>
+      then click on the ball in each frame to build a trajectory.
+    </p>
     <p style="margin-top:20px; font-size:12px; color:#555;">
       Generate a reference frame with:<br>
       <code>python calibrate_cage.py /videos/clip.mov /output/reference_frame.jpg</code>
+    </p>
+    <p style="margin-top:12px; font-size:12px; color:#555;">
+      <strong>Zoom:</strong> Scroll wheel &bull; <strong>Pan:</strong> Space+drag or Middle-click drag
     </p>
   </div>
 
@@ -250,21 +331,56 @@
 
 <!-- Side Panel -->
 <div class="side-panel" id="side-panel">
-  <h3>&#128308; ROI Polygon <span id="roi-count">(0 points)</span></h3>
-  <p style="font-size:11px; color:#888; margin-bottom:4px;">Click to add points along cage net boundary. <strong>Ctrl+click</strong> near a point to drag it. Right-click to undo last.</p>
-  <div class="coord-list" id="roi-list">No points yet</div>
+  <!-- Cage annotation panels (visible in roi/machine/home modes) -->
+  <div id="cage-panels">
+    <h3>&#128308; ROI Polygon <span id="roi-count">(0 points)</span></h3>
+    <p style="font-size:11px; color:#888; margin-bottom:4px;">Click to add points along cage net boundary. <strong>Ctrl+click</strong> near a point to drag it. Right-click to undo last.</p>
+    <div class="coord-list" id="roi-list">No points yet</div>
 
-  <h3>&#128998; Machine BBox <span id="machine-status">(not set)</span></h3>
-  <p style="font-size:11px; color:#888; margin-bottom:4px;">Click &amp; drag a rectangle around the pitching machine.</p>
-  <div class="coord-list" id="machine-info">Not set</div>
+    <h3>&#128998; Machine BBox <span id="machine-status">(not set)</span></h3>
+    <p style="font-size:11px; color:#888; margin-bottom:4px;">Click &amp; drag a rectangle around the pitching machine.</p>
+    <div class="coord-list" id="machine-info">Not set</div>
 
-  <h3>&#11044; Home Plate <span id="home-status">(not set)</span></h3>
-  <p style="font-size:11px; color:#888; margin-bottom:4px;">Click where the batter stands.</p>
-  <div class="coord-list" id="home-info">Not set</div>
+    <h3>&#11044; Home Plate <span id="home-status">(not set)</span></h3>
+    <p style="font-size:11px; color:#888; margin-bottom:4px;">Click to place &bull; Ctrl+click to move</p>
+    <div class="coord-list" id="home-info">Not set</div>
 
-  <h3>&#128196; Config Output</h3>
-  <p style="font-size:11px; color:#888; margin-bottom:4px;">Copy this into <code>cage_config.json</code></p>
-  <div class="json-output" id="json-output">{ }</div>
+    <h3>&#128196; Config Output</h3>
+    <p style="font-size:11px; color:#888; margin-bottom:4px;">Copy this into <code>cage_config.json</code></p>
+    <div class="json-output" id="json-output">{ }</div>
+  </div>
+
+  <!-- Ball tracking panel (visible in ball mode) -->
+  <div id="ball-panel" class="ball-track-panel">
+    <h3>&#9918; Ball Tracking</h3>
+    <p style="font-size:11px; color:#888; margin-bottom:4px;">
+      Load stills with <strong>Load Stills</strong> button or drag &amp; drop multiple images.<br>
+      Click on the ball in each frame. Use <strong>&larr; &rarr;</strong> arrow keys or buttons to navigate.<br>
+      Press <strong>S</strong> to skip (no ball visible). <strong>Ctrl+click</strong> to move a placed point.<br>
+      <strong>Scroll</strong> to zoom &bull; <strong>Space+drag</strong> to pan &bull; Frames auto-advance after marking.
+    </p>
+
+    <div class="frame-nav">
+      <button class="btn" onclick="ballPrevFrame()" title="Previous frame (Left arrow)">&#9664; Prev</button>
+      <span class="frame-num" id="ball-frame-label">No frames loaded</span>
+      <button class="btn" onclick="ballNextFrame()" title="Next frame (Right arrow)">Next &#9654;</button>
+    </div>
+
+    <div class="progress-bar"><div class="fill" id="ball-progress" style="width:0%"></div></div>
+    <p style="font-size:11px; color:#888;" id="ball-stats">0 / 0 frames marked</p>
+
+    <h3>Marked Positions</h3>
+    <div class="ball-point-list" id="ball-point-list">No frames loaded</div>
+
+    <h3 style="margin-top:12px;">&#128196; Ball Trajectory JSON</h3>
+    <p style="font-size:11px; color:#888; margin-bottom:4px;">Frame number &rarr; [x, y] coordinates</p>
+    <div class="json-output" id="ball-json-output">{ }</div>
+
+    <div style="margin-top:8px; display:flex; gap:6px;">
+      <button class="btn success" onclick="copyBallJSON()">&#128203; Copy JSON</button>
+      <button class="btn success" onclick="downloadBallJSON()">&#128190; Download</button>
+    </div>
+  </div>
 </div>
 
 <!-- Status Bar -->
@@ -273,13 +389,14 @@
   <span>Mouse: <span class="highlight" id="status-mouse">—</span></span>
   <span>Image: <span class="highlight" id="status-image">none</span></span>
   <span>Zoom: <span class="highlight" id="status-zoom">100%</span></span>
+  <span id="status-frame-info" style="display:none">Frame: <span class="highlight" id="status-frame">—</span></span>
 </div>
 
 <script>
 // ============================================================
 // STATE
 // ============================================================
-let mode = 'roi';          // 'roi' | 'machine' | 'home'
+let mode = 'roi';          // 'roi' | 'machine' | 'home' | 'ball'
 let img = null;            // loaded Image object
 let imgW = 0, imgH = 0;
 
@@ -288,21 +405,69 @@ let roiPoints = [];        // [[x,y], ...]
 let machineBBox = null;    // [x1, y1, x2, y2] or null
 let homePoint = null;      // [x, y] or null
 
+// Ball tracking data
+let ballFrames = [];           // Array of { frameNum, img, fileName }
+let ballPositions = {};        // { frameNum: [x, y] } — marked positions
+let ballSkipped = {};          // { frameNum: true } — explicitly skipped frames
+let ballCurrentIdx = 0;        // index into ballFrames[]
+
 // Drag state for machine bbox
 let dragging = false;
 let dragStart = null;
 let dragEnd = null;
 
-// Drag state for moving ROI/home points (Ctrl+click)
+// Drag state for moving ROI/home/ball points (Ctrl+click)
 let movingPointIdx = -1;    // index into roiPoints being dragged, or -1
 let movingHome = false;     // true if dragging home plate point
-const GRAB_RADIUS = 15;     // pixel radius for grabbing a point
+let movingBall = false;     // true if dragging ball point
+const GRAB_RADIUS = 15;     // screen-pixel radius for grabbing a point
 
-// Canvas / view state
+// Canvas / view state — virtual camera
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
-let scale = 1;
-let offsetX = 0, offsetY = 0;
+let viewZoom = 1;      // zoom factor: 1 = 1 image px = 1 screen px
+let panX = 0;           // image-space X coordinate at canvas center
+let panY = 0;           // image-space Y coordinate at canvas center
+
+// Pan state
+let isPanning = false;
+let panMouseStartX = 0, panMouseStartY = 0;
+let panStartPanX = 0, panStartPanY = 0;
+let spaceHeld = false;
+
+// ============================================================
+// COORDINATE TRANSFORMS
+// ============================================================
+// Image pixel coords → canvas screen coords
+function i2s(ix, iy) {
+  return [
+    (ix - panX) * viewZoom + canvas.width / 2,
+    (iy - panY) * viewZoom + canvas.height / 2,
+  ];
+}
+
+// Canvas screen coords → image pixel coords
+function s2i(sx, sy) {
+  return [
+    (sx - canvas.width / 2) / viewZoom + panX,
+    (sy - canvas.height / 2) / viewZoom + panY,
+  ];
+}
+
+// Mouse event → image pixel coords (clamped)
+function canvasToImage(e) {
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left;
+  const sy = e.clientY - rect.top;
+  const [ix, iy] = s2i(sx, sy);
+  return [Math.round(Math.max(0, Math.min(ix, imgW))), Math.round(Math.max(0, Math.min(iy, imgH)))];
+}
+
+// Mouse event → raw screen coords on canvas
+function canvasScreenCoords(e) {
+  const rect = canvas.getBoundingClientRect();
+  return [e.clientX - rect.left, e.clientY - rect.top];
+}
 
 // ============================================================
 // MODE SWITCHING
@@ -313,9 +478,25 @@ function setMode(m) {
     if (b.id === 'btn-' + m) b.classList.add('active');
     else if (b.id.startsWith('btn-')) b.classList.remove('active');
   });
-  const names = { roi: 'ROI Polygon', machine: 'Machine BBox', home: 'Home Plate' };
+  const names = { roi: 'ROI Polygon', machine: 'Machine BBox', home: 'Home Plate', ball: 'Ball Tracking' };
   document.getElementById('status-mode').textContent = names[m];
-  draw();
+
+  // Toggle panel visibility
+  document.getElementById('cage-panels').style.display = (m === 'ball') ? 'none' : 'block';
+  document.getElementById('ball-panel').className = (m === 'ball') ? 'ball-track-panel visible' : 'ball-track-panel';
+
+  // Toggle stills button visibility
+  document.getElementById('btn-load-stills').style.display = (m === 'ball') ? '' : 'none';
+
+  // Toggle frame info in status bar
+  document.getElementById('status-frame-info').style.display = (m === 'ball') ? '' : 'none';
+
+  // In ball mode, show current ball frame
+  if (m === 'ball' && ballFrames.length > 0) {
+    showBallFrame(ballCurrentIdx);
+  } else {
+    draw();
+  }
 }
 
 // ============================================================
@@ -360,7 +541,8 @@ function loadFile(file) {
     img.onload = () => {
       imgW = img.width;
       imgH = img.height;
-      fitToScreen();
+      sizeCanvas();
+      resetView();
       document.getElementById('placeholder').style.display = 'none';
       canvas.style.display = 'block';
       document.getElementById('status-image').textContent = `${imgW}x${imgH} — ${file.name}`;
@@ -371,15 +553,97 @@ function loadFile(file) {
   reader.readAsDataURL(file);
 }
 
-function fitToScreen() {
+// Load multiple stills for ball tracking
+function loadStills(event) {
+  const files = Array.from(event.target.files);
+  if (files.length === 0) return;
+  loadStillFiles(files);
+}
+
+function loadStillFiles(files) {
+  // Sort files naturally by name (frame_092.png, frame_093.png, ...)
+  files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+
+  ballFrames = [];
+  ballPositions = {};
+  ballSkipped = {};
+  ballCurrentIdx = 0;
+
+  let loaded = 0;
+  const total = files.length;
+
+  files.forEach((file, idx) => {
+    const reader = new FileReader();
+    reader.onload = e => {
+      const imgObj = new Image();
+      imgObj.onload = () => {
+        // Extract frame number from filename (e.g., frame_092.png -> 92)
+        const match = file.name.match(/(\d+)/);
+        const frameNum = match ? parseInt(match[match.length - 1], 10) : idx;
+
+        ballFrames[idx] = {
+          frameNum: frameNum,
+          img: imgObj,
+          fileName: file.name,
+          width: imgObj.width,
+          height: imgObj.height,
+        };
+
+        loaded++;
+        if (loaded === total) {
+          // All loaded — switch to ball mode and show first frame
+          mode = 'ball';
+          setMode('ball');
+          showBallFrame(0);
+          updateBallUI();
+        }
+      };
+      imgObj.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+// Set canvas to fill available viewport area (fixed size, independent of zoom)
+function sizeCanvas() {
   const area = document.getElementById('canvas-area');
   const panelWidth = 340;
-  const availW = area.clientWidth - panelWidth - 20;
-  const availH = area.clientHeight - 20;
-  scale = Math.min(availW / imgW, availH / imgH, 1);
-  canvas.width = Math.round(imgW * scale);
-  canvas.height = Math.round(imgH * scale);
-  document.getElementById('status-zoom').textContent = `${Math.round(scale * 100)}%`;
+  const availW = area.clientWidth - panelWidth;
+  const availH = area.clientHeight;
+  canvas.width = availW;
+  canvas.height = availH;
+}
+
+// Reset view to fit image on screen, centered
+function resetView() {
+  if (!imgW || !imgH) return;
+  sizeCanvas();
+  viewZoom = Math.min(canvas.width / imgW, canvas.height / imgH) * 0.95;
+  panX = imgW / 2;
+  panY = imgH / 2;
+  updateZoomDisplay();
+  draw();
+}
+
+function updateZoomDisplay() {
+  document.getElementById('status-zoom').textContent = `${Math.round(viewZoom * 100)}%`;
+}
+
+// Zoom by a factor, optionally centered on a screen point
+function zoomBy(factor, centerSX, centerSY) {
+  if (centerSX === undefined) {
+    centerSX = canvas.width / 2;
+    centerSY = canvas.height / 2;
+  }
+  // Image point under cursor before zoom
+  const [ix, iy] = s2i(centerSX, centerSY);
+  const newZoom = Math.max(0.05, Math.min(viewZoom * factor, 30));
+  // Adjust pan so the image point under cursor stays at the same screen position
+  panX = ix - (centerSX - canvas.width / 2) / newZoom;
+  panY = iy - (centerSY - canvas.height / 2) / newZoom;
+  viewZoom = newZoom;
+  updateZoomDisplay();
+  draw();
 }
 
 // Drag and drop
@@ -396,37 +660,148 @@ canvasArea.addEventListener('dragleave', () => {
 canvasArea.addEventListener('drop', e => {
   e.preventDefault();
   dropZone.classList.remove('visible');
-  const file = e.dataTransfer.files[0];
-  if (file && file.type.startsWith('image/')) loadFile(file);
+  const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+  if (files.length === 0) return;
+
+  if (files.length > 1 || mode === 'ball') {
+    // Multiple files -> ball tracking mode
+    loadStillFiles(files);
+  } else {
+    // Single file -> normal image load
+    loadFile(files[0]);
+  }
 });
 
 // ============================================================
-// MOUSE EVENTS → IMAGE COORDINATES
+// ZOOM & PAN — SCROLL WHEEL + MIDDLE-CLICK/SPACE DRAG
 // ============================================================
-function canvasToImage(e) {
-  const rect = canvas.getBoundingClientRect();
-  const x = Math.round((e.clientX - rect.left) / scale);
-  const y = Math.round((e.clientY - rect.top) / scale);
-  return [Math.max(0, Math.min(x, imgW)), Math.max(0, Math.min(y, imgH))];
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const [sx, sy] = canvasScreenCoords(e);
+  const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+  zoomBy(factor, sx, sy);
+}, { passive: false });
+
+// Prevent middle-click scroll on canvas area
+canvasArea.addEventListener('mousedown', e => {
+  if (e.button === 1) e.preventDefault();
+});
+
+// ============================================================
+// BALL TRACKING — FRAME NAVIGATION
+// ============================================================
+function showBallFrame(idx) {
+  if (ballFrames.length === 0 || idx < 0 || idx >= ballFrames.length) return;
+
+  const isFirstLoad = (ballCurrentIdx === 0 && idx === 0 && img === null);
+  ballCurrentIdx = idx;
+  const frame = ballFrames[idx];
+  img = frame.img;
+  imgW = frame.width;
+  imgH = frame.height;
+
+  sizeCanvas();
+  document.getElementById('placeholder').style.display = 'none';
+  canvas.style.display = 'block';
+  document.getElementById('status-image').textContent = `${imgW}x${imgH} — ${frame.fileName}`;
+  document.getElementById('status-frame').textContent = `${frame.frameNum} (${idx + 1}/${ballFrames.length})`;
+
+  // Only reset view on first load; preserve zoom/pan when navigating
+  if (isFirstLoad) {
+    resetView();
+  }
+  draw();
+  updateBallUI();
+
+  // Scroll the list to current entry
+  const list = document.getElementById('ball-point-list');
+  const entry = list.querySelector(`.entry[data-idx="${idx}"]`);
+  if (entry) entry.scrollIntoView({ block: 'nearest' });
 }
 
-// Find nearest ROI point within grab radius (in image coords)
-function findNearestPoint(x, y) {
+function ballPrevFrame() {
+  if (ballCurrentIdx > 0) showBallFrame(ballCurrentIdx - 1);
+}
+
+function ballNextFrame() {
+  if (ballCurrentIdx < ballFrames.length - 1) showBallFrame(ballCurrentIdx + 1);
+}
+
+function ballSkipFrame() {
+  if (ballFrames.length === 0) return;
+  const frame = ballFrames[ballCurrentIdx];
+  delete ballPositions[frame.frameNum];
+  ballSkipped[frame.frameNum] = true;
+  if (ballCurrentIdx < ballFrames.length - 1) {
+    showBallFrame(ballCurrentIdx + 1);
+  } else {
+    draw();
+    updateBallUI();
+  }
+}
+
+function ballRemoveMark(frameNum) {
+  delete ballPositions[frameNum];
+  delete ballSkipped[frameNum];
+  draw();
+  updateBallUI();
+}
+
+function ballGoToFrame(idx) {
+  showBallFrame(idx);
+}
+
+// ============================================================
+// MOUSE EVENTS
+// ============================================================
+
+// Find nearest ROI point within grab radius (in screen pixels)
+function findNearestPoint(imgX, imgY) {
   let bestIdx = -1, bestDist = Infinity;
   for (let i = 0; i < roiPoints.length; i++) {
-    const dx = x - roiPoints[i][0];
-    const dy = y - roiPoints[i][1];
+    const dx = imgX - roiPoints[i][0];
+    const dy = imgY - roiPoints[i][1];
     const dist = Math.sqrt(dx * dx + dy * dy);
     if (dist < bestDist) { bestDist = dist; bestIdx = i; }
   }
-  // Scale grab radius by zoom — a point at 50% zoom needs larger image-space radius
-  const grabInImagePx = GRAB_RADIUS / scale;
+  const grabInImagePx = GRAB_RADIUS / viewZoom;
   return bestDist <= grabInImagePx ? bestIdx : -1;
 }
 
+// Check if mouse is near ball marker
+function isNearBallPoint(imgX, imgY) {
+  if (ballFrames.length === 0) return false;
+  const frame = ballFrames[ballCurrentIdx];
+  const pos = ballPositions[frame.frameNum];
+  if (!pos) return false;
+  const dx = imgX - pos[0], dy = imgY - pos[1];
+  return Math.sqrt(dx * dx + dy * dy) <= GRAB_RADIUS / viewZoom;
+}
+
+function updateCursor() {
+  if (isPanning || spaceHeld) {
+    canvas.style.cursor = isPanning ? 'grabbing' : 'grab';
+  } else if (movingPointIdx >= 0 || movingHome || movingBall) {
+    canvas.style.cursor = 'grabbing';
+  } else {
+    canvas.style.cursor = 'crosshair';
+  }
+}
+
 canvas.addEventListener('mousemove', e => {
+  const [sx, sy] = canvasScreenCoords(e);
   const [x, y] = canvasToImage(e);
   document.getElementById('status-mouse').textContent = `(${x}, ${y})`;
+
+  // Panning
+  if (isPanning) {
+    const dx = sx - panMouseStartX;
+    const dy = sy - panMouseStartY;
+    panX = panStartPanX - dx / viewZoom;
+    panY = panStartPanY - dy / viewZoom;
+    draw();
+    return;
+  }
 
   // Dragging a ROI point (Ctrl+click)
   if (movingPointIdx >= 0) {
@@ -436,11 +811,20 @@ canvas.addEventListener('mousemove', e => {
     return;
   }
 
-  // Dragging home plate point (Ctrl+click)
+  // Dragging home plate point
   if (movingHome) {
     homePoint = [x, y];
     updateUI();
     draw();
+    return;
+  }
+
+  // Dragging ball point
+  if (movingBall) {
+    const frame = ballFrames[ballCurrentIdx];
+    ballPositions[frame.frameNum] = [x, y];
+    draw();
+    updateBallUI();
     return;
   }
 
@@ -451,13 +835,17 @@ canvas.addEventListener('mousemove', e => {
     return;
   }
 
-  // Hover cursor: show grab cursor when Ctrl held near a point
-  if (e.ctrlKey || e.metaKey) {
+  // Hover cursor
+  if (spaceHeld) {
+    canvas.style.cursor = 'grab';
+  } else if (e.ctrlKey || e.metaKey) {
     if (mode === 'roi' && findNearestPoint(x, y) >= 0) {
       canvas.style.cursor = 'grab';
     } else if (mode === 'home' && homePoint) {
       const dx = x - homePoint[0], dy = y - homePoint[1];
-      canvas.style.cursor = Math.sqrt(dx*dx + dy*dy) <= GRAB_RADIUS / scale ? 'grab' : 'crosshair';
+      canvas.style.cursor = Math.sqrt(dx*dx + dy*dy) <= GRAB_RADIUS / viewZoom ? 'grab' : 'crosshair';
+    } else if (mode === 'ball' && isNearBallPoint(x, y)) {
+      canvas.style.cursor = 'grab';
     } else {
       canvas.style.cursor = 'crosshair';
     }
@@ -468,9 +856,25 @@ canvas.addEventListener('mousemove', e => {
 
 canvas.addEventListener('mousedown', e => {
   if (!img) return;
+  const [sx, sy] = canvasScreenCoords(e);
   const [x, y] = canvasToImage(e);
 
-  // Ctrl+click (or Cmd+click on Mac): move existing point
+  // Middle-click or Space+click → pan
+  if (e.button === 1 || (e.button === 0 && spaceHeld)) {
+    isPanning = true;
+    panMouseStartX = sx;
+    panMouseStartY = sy;
+    panStartPanX = panX;
+    panStartPanY = panY;
+    canvas.style.cursor = 'grabbing';
+    e.preventDefault();
+    return;
+  }
+
+  // Only left-click from here
+  if (e.button !== 0) return;
+
+  // Ctrl+click: move existing point
   if (e.ctrlKey || e.metaKey) {
     if (mode === 'roi') {
       const idx = findNearestPoint(x, y);
@@ -481,11 +885,15 @@ canvas.addEventListener('mousedown', e => {
       }
     } else if (mode === 'home' && homePoint) {
       const dx = x - homePoint[0], dy = y - homePoint[1];
-      if (Math.sqrt(dx*dx + dy*dy) <= GRAB_RADIUS / scale) {
+      if (Math.sqrt(dx*dx + dy*dy) <= GRAB_RADIUS / viewZoom) {
         movingHome = true;
         canvas.style.cursor = 'grabbing';
         return;
       }
+    } else if (mode === 'ball' && isNearBallPoint(x, y)) {
+      movingBall = true;
+      canvas.style.cursor = 'grabbing';
+      return;
     }
   }
 
@@ -502,14 +910,35 @@ canvas.addEventListener('mousedown', e => {
     homePoint = [x, y];
     updateUI();
     draw();
+  } else if (mode === 'ball') {
+    if (ballFrames.length > 0) {
+      const frame = ballFrames[ballCurrentIdx];
+      ballPositions[frame.frameNum] = [x, y];
+      delete ballSkipped[frame.frameNum];
+      draw();
+      updateBallUI();
+      // Auto-advance after short delay
+      setTimeout(() => {
+        if (ballCurrentIdx < ballFrames.length - 1) {
+          showBallFrame(ballCurrentIdx + 1);
+        }
+      }, 150);
+    }
   }
 });
 
 canvas.addEventListener('mouseup', e => {
+  // Release pan
+  if (isPanning) {
+    isPanning = false;
+    updateCursor();
+    return;
+  }
+
   // Release moved ROI point
   if (movingPointIdx >= 0) {
     movingPointIdx = -1;
-    canvas.style.cursor = 'crosshair';
+    updateCursor();
     updateUI();
     draw();
     return;
@@ -518,9 +947,18 @@ canvas.addEventListener('mouseup', e => {
   // Release moved home plate point
   if (movingHome) {
     movingHome = false;
-    canvas.style.cursor = 'crosshair';
+    updateCursor();
     updateUI();
     draw();
+    return;
+  }
+
+  // Release moved ball point
+  if (movingBall) {
+    movingBall = false;
+    updateCursor();
+    draw();
+    updateBallUI();
     return;
   }
 
@@ -550,6 +988,12 @@ canvas.addEventListener('contextmenu', e => {
     roiPoints.pop();
     updateUI();
     draw();
+  } else if (mode === 'ball' && ballFrames.length > 0) {
+    const frame = ballFrames[ballCurrentIdx];
+    delete ballPositions[frame.frameNum];
+    delete ballSkipped[frame.frameNum];
+    draw();
+    updateBallUI();
   }
 });
 
@@ -560,8 +1004,25 @@ function draw() {
   if (!img) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Draw image
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+  // Draw dark background
+  ctx.fillStyle = '#111';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Draw image using virtual camera transform
+  const [imgScreenX, imgScreenY] = i2s(0, 0);
+  const drawW = imgW * viewZoom;
+  const drawH = imgH * viewZoom;
+  ctx.drawImage(img, imgScreenX, imgScreenY, drawW, drawH);
+
+  // Thin border around image extent
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(imgScreenX, imgScreenY, drawW, drawH);
+
+  if (mode === 'ball') {
+    drawBallMode();
+    return;
+  }
 
   // ROI polygon
   if (roiPoints.length > 0) {
@@ -570,8 +1031,7 @@ function draw() {
     ctx.setLineDash([8, 4]);
     ctx.beginPath();
     roiPoints.forEach((p, i) => {
-      const sx = p[0] * scale;
-      const sy = p[1] * scale;
+      const [sx, sy] = i2s(p[0], p[1]);
       if (i === 0) ctx.moveTo(sx, sy);
       else ctx.lineTo(sx, sy);
     });
@@ -579,14 +1039,12 @@ function draw() {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Fill with semi-transparent overlay outside polygon
+    // Fill with semi-transparent overlay
     if (roiPoints.length >= 3) {
-      // Draw filled polygon semi-transparent
       ctx.fillStyle = 'rgba(0, 255, 100, 0.08)';
       ctx.beginPath();
       roiPoints.forEach((p, i) => {
-        const sx = p[0] * scale;
-        const sy = p[1] * scale;
+        const [sx, sy] = i2s(p[0], p[1]);
         if (i === 0) ctx.moveTo(sx, sy);
         else ctx.lineTo(sx, sy);
       });
@@ -594,14 +1052,12 @@ function draw() {
       ctx.fill();
     }
 
-    // Draw vertices (highlight the one being moved)
+    // Draw vertices
     roiPoints.forEach((p, i) => {
-      const sx = p[0] * scale;
-      const sy = p[1] * scale;
+      const [sx, sy] = i2s(p[0], p[1]);
       const isMoving = (i === movingPointIdx);
       const radius = isMoving ? 8 : 5;
 
-      // Outer ring for active point
       if (isMoving) {
         ctx.strokeStyle = '#00d4ff';
         ctx.lineWidth = 2;
@@ -626,32 +1082,29 @@ function draw() {
      Math.max(dragStart[0], dragEnd[0]), Math.max(dragStart[1], dragEnd[1])] : null);
 
   if (bbox) {
-    const [x1, y1, x2, y2] = bbox;
+    const [sx1, sy1] = i2s(bbox[0], bbox[1]);
+    const [sx2, sy2] = i2s(bbox[2], bbox[3]);
     ctx.strokeStyle = '#ff4444';
     ctx.lineWidth = 2;
     ctx.setLineDash([]);
-    ctx.strokeRect(x1 * scale, y1 * scale, (x2 - x1) * scale, (y2 - y1) * scale);
+    ctx.strokeRect(sx1, sy1, sx2 - sx1, sy2 - sy1);
     ctx.fillStyle = 'rgba(255, 0, 0, 0.1)';
-    ctx.fillRect(x1 * scale, y1 * scale, (x2 - x1) * scale, (y2 - y1) * scale);
+    ctx.fillRect(sx1, sy1, sx2 - sx1, sy2 - sy1);
     ctx.fillStyle = '#ff4444';
     ctx.font = 'bold 12px sans-serif';
-    ctx.fillText('MACHINE', x1 * scale + 4, y1 * scale - 6);
-    // Dimensions
+    ctx.fillText('MACHINE', sx1 + 4, sy1 - 6);
     ctx.font = '11px monospace';
-    ctx.fillText(`${x2 - x1}x${y2 - y1}px`, x1 * scale + 4, y2 * scale + 14);
+    ctx.fillText(`${bbox[2] - bbox[0]}x${bbox[3] - bbox[1]}px`, sx1 + 4, sy2 + 14);
   }
 
   // Home plate
   if (homePoint) {
-    const sx = homePoint[0] * scale;
-    const sy = homePoint[1] * scale;
-    // Pentagon shape for home plate
+    const [sx, sy] = i2s(homePoint[0], homePoint[1]);
     ctx.fillStyle = '#ffcc00';
     ctx.strokeStyle = '#ffcc00';
     ctx.lineWidth = 2;
     ctx.beginPath();
     const r = 10;
-    // Draw a diamond/pentagon
     ctx.moveTo(sx, sy - r);
     ctx.lineTo(sx + r, sy);
     ctx.lineTo(sx + r * 0.6, sy + r * 0.8);
@@ -664,22 +1117,124 @@ function draw() {
     ctx.fillText('HOME', sx + 14, sy + 4);
   }
 
-  // Mode-specific cursor hint
+  // Mode hint
+  drawHint();
+}
+
+function drawBallMode() {
+  if (ballFrames.length === 0) return;
+  const frame = ballFrames[ballCurrentIdx];
+  const pos = ballPositions[frame.frameNum];
+  const skipped = ballSkipped[frame.frameNum];
+
+  // Draw previous positions as faded trail
+  const trailPositions = [];
+  for (let i = Math.max(0, ballCurrentIdx - 10); i < ballCurrentIdx; i++) {
+    const f = ballFrames[i];
+    const p = ballPositions[f.frameNum];
+    if (p) trailPositions.push({ pos: p, age: ballCurrentIdx - i });
+  }
+  if (trailPositions.length >= 2) {
+    ctx.strokeStyle = 'rgba(0, 200, 0, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    trailPositions.forEach((t, i) => {
+      const [sx, sy] = i2s(t.pos[0], t.pos[1]);
+      if (i === 0) ctx.moveTo(sx, sy);
+      else ctx.lineTo(sx, sy);
+    });
+    if (pos) {
+      const [sx, sy] = i2s(pos[0], pos[1]);
+      ctx.lineTo(sx, sy);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  // Draw trail dots
+  trailPositions.forEach(t => {
+    const [sx, sy] = i2s(t.pos[0], t.pos[1]);
+    const alpha = Math.max(0.15, 1 - t.age * 0.08);
+    ctx.fillStyle = `rgba(0, 200, 0, ${alpha})`;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 4, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // Draw current ball position
+  if (pos) {
+    const [sx, sy] = i2s(pos[0], pos[1]);
+
+    // Crosshair
+    const ch = 20;
+    ctx.strokeStyle = '#00ff88';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(sx - ch, sy); ctx.lineTo(sx + ch, sy);
+    ctx.moveTo(sx, sy - ch); ctx.lineTo(sx, sy + ch);
+    ctx.stroke();
+
+    // Circle
+    ctx.beginPath();
+    ctx.arc(sx, sy, 12, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // Center dot
+    ctx.fillStyle = '#ff0000';
+    ctx.beginPath();
+    ctx.arc(sx, sy, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Label
+    ctx.fillStyle = '#00ff88';
+    ctx.font = 'bold 13px monospace';
+    ctx.fillText(`F${frame.frameNum}: (${pos[0]}, ${pos[1]})`, sx + 18, sy - 8);
+  }
+
+  // Frame number overlay (fixed screen position)
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+  ctx.fillRect(0, 0, 280, 36);
+  ctx.fillStyle = '#00d4ff';
+  ctx.font = 'bold 16px monospace';
+  ctx.fillText(`Frame ${frame.frameNum}`, 10, 25);
+
+  // Zoom indicator in header
+  ctx.fillStyle = '#888';
+  ctx.font = '11px monospace';
+  ctx.fillText(`${Math.round(viewZoom * 100)}%`, 200, 25);
+
+  // Status indicator
+  if (pos) {
+    ctx.fillStyle = '#00ff88';
+    ctx.font = 'bold 16px monospace';
+    ctx.fillText('\u2713', 250, 25);
+  } else if (skipped) {
+    ctx.fillStyle = '#888';
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText('SKIP', 235, 25);
+  }
+
+  drawHint();
+}
+
+function drawHint() {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+  ctx.fillRect(0, canvas.height - 22, canvas.width, 22);
   ctx.fillStyle = 'rgba(0, 212, 255, 0.8)';
   ctx.font = '11px sans-serif';
   const hints = {
-    roi: 'Click to add point • Ctrl+click to move point • Right-click to undo',
-    machine: 'Click & drag to draw machine bounding box',
-    home: 'Click to place • Ctrl+click to move',
+    roi: 'Click to add point \u2022 Ctrl+click to move \u2022 Right-click to undo \u2022 Scroll=zoom \u2022 Space+drag=pan',
+    machine: 'Click & drag bounding box \u2022 Scroll=zoom \u2022 Space+drag=pan',
+    home: 'Click to place \u2022 Ctrl+click to move \u2022 Scroll=zoom \u2022 Space+drag=pan',
+    ball: 'Click on ball \u2022 S=skip \u2022 \u2190\u2192=navigate \u2022 Ctrl+click=move \u2022 Scroll=zoom \u2022 Space+drag=pan',
   };
-  ctx.fillText(hints[mode], 10, canvas.height - 8);
+  ctx.fillText(hints[mode] || '', 10, canvas.height - 6);
 }
 
 // ============================================================
 // UI UPDATES
 // ============================================================
 function updateUI() {
-  // ROI list
   const roiList = document.getElementById('roi-list');
   document.getElementById('roi-count').textContent = `(${roiPoints.length} points)`;
   if (roiPoints.length === 0) {
@@ -688,12 +1243,11 @@ function updateUI() {
     roiList.innerHTML = roiPoints.map((p, i) =>
       `<div class="point">
         <span>${i + 1}. [${p[0]}, ${p[1]}]</span>
-        <span class="remove" onclick="removeRoiPoint(${i})">✕</span>
+        <span class="remove" onclick="removeRoiPoint(${i})">&#10005;</span>
       </div>`
     ).join('');
   }
 
-  // Machine info
   const machineInfo = document.getElementById('machine-info');
   const machineStatus = document.getElementById('machine-status');
   if (machineBBox) {
@@ -705,7 +1259,6 @@ function updateUI() {
     machineInfo.innerHTML = 'Not set — drag a box around the machine';
   }
 
-  // Home info
   const homeInfo = document.getElementById('home-info');
   const homeStatus = document.getElementById('home-status');
   if (homePoint) {
@@ -716,8 +1269,53 @@ function updateUI() {
     homeInfo.innerHTML = 'Not set — click where the batter stands';
   }
 
-  // JSON output
   updateJSON();
+}
+
+function updateBallUI() {
+  if (ballFrames.length === 0) {
+    document.getElementById('ball-frame-label').textContent = 'No frames loaded';
+    document.getElementById('ball-stats').textContent = '0 / 0 frames marked';
+    document.getElementById('ball-point-list').innerHTML = 'No frames loaded';
+    document.getElementById('ball-json-output').textContent = '{ }';
+    return;
+  }
+
+  const frame = ballFrames[ballCurrentIdx];
+  document.getElementById('ball-frame-label').textContent =
+    `Frame ${frame.frameNum} (${ballCurrentIdx + 1} / ${ballFrames.length})`;
+
+  const marked = Object.keys(ballPositions).length;
+  const skipped = Object.keys(ballSkipped).length;
+  const total = ballFrames.length;
+  document.getElementById('ball-stats').textContent =
+    `${marked} marked, ${skipped} skipped, ${total - marked - skipped} remaining`;
+
+  const pct = total > 0 ? ((marked + skipped) / total * 100) : 0;
+  document.getElementById('ball-progress').style.width = pct + '%';
+
+  const listEl = document.getElementById('ball-point-list');
+  listEl.innerHTML = ballFrames.map((f, idx) => {
+    const pos = ballPositions[f.frameNum];
+    const skip = ballSkipped[f.frameNum];
+    const isCurrent = idx === ballCurrentIdx;
+    let cls = isCurrent ? 'entry current' : 'entry';
+    let text = '';
+    if (pos) {
+      cls += ' marked';
+      text = `F${f.frameNum}: [${pos[0]}, ${pos[1]}]`;
+    } else if (skip) {
+      cls += ' unmarked';
+      text = `F${f.frameNum}: (skipped)`;
+    } else {
+      cls += ' unmarked';
+      text = `F${f.frameNum}: —`;
+    }
+    const removeBtn = pos ? `<span class="remove" onclick="event.stopPropagation(); ballRemoveMark(${f.frameNum})">&#10005;</span>` : '';
+    return `<div class="${cls}" data-idx="${idx}" onclick="ballGoToFrame(${idx})"><span>${text}</span>${removeBtn}</div>`;
+  }).join('');
+
+  updateBallJSON();
 }
 
 function updateJSON() {
@@ -729,6 +1327,20 @@ function updateJSON() {
     },
   };
   document.getElementById('json-output').textContent = JSON.stringify(output, null, 2);
+}
+
+function updateBallJSON() {
+  const trajectory = {};
+  const sortedFrames = Object.keys(ballPositions)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  sortedFrames.forEach(fn => {
+    trajectory[fn] = ballPositions[fn];
+  });
+
+  document.getElementById('ball-json-output').textContent =
+    JSON.stringify({ ball_positions: trajectory }, null, 2);
 }
 
 // ============================================================
@@ -747,6 +1359,11 @@ function undoLast() {
     machineBBox = null;
   } else if (mode === 'home') {
     homePoint = null;
+  } else if (mode === 'ball' && ballFrames.length > 0) {
+    const frame = ballFrames[ballCurrentIdx];
+    delete ballPositions[frame.frameNum];
+    delete ballSkipped[frame.frameNum];
+    updateBallUI();
   }
   updateUI();
   draw();
@@ -756,6 +1373,11 @@ function clearCurrent() {
   if (mode === 'roi') roiPoints = [];
   else if (mode === 'machine') machineBBox = null;
   else if (mode === 'home') homePoint = null;
+  else if (mode === 'ball') {
+    ballPositions = {};
+    ballSkipped = {};
+    updateBallUI();
+  }
   updateUI();
   draw();
 }
@@ -764,11 +1386,15 @@ function clearAll() {
   roiPoints = [];
   machineBBox = null;
   homePoint = null;
+  ballPositions = {};
+  ballSkipped = {};
   updateUI();
+  updateBallUI();
   draw();
 }
 
 function copyConfig() {
+  if (mode === 'ball') { copyBallJSON(); return; }
   const output = {
     roi_polygon: roiPoints,
     calibration: {
@@ -782,7 +1408,6 @@ function copyConfig() {
   navigator.clipboard.writeText(text).then(() => {
     alert('Config copied to clipboard!\n\nPaste the roi_polygon and calibration sections into config/cage_config.json');
   }).catch(() => {
-    // Fallback
     const ta = document.createElement('textarea');
     ta.value = text;
     document.body.appendChild(ta);
@@ -794,6 +1419,7 @@ function copyConfig() {
 }
 
 function downloadConfig() {
+  if (mode === 'ball') { downloadBallJSON(); return; }
   const output = {
     roi_polygon: roiPoints,
     calibration: {
@@ -812,15 +1438,86 @@ function downloadConfig() {
   URL.revokeObjectURL(url);
 }
 
+function copyBallJSON() {
+  const trajectory = {};
+  Object.keys(ballPositions).map(Number).sort((a, b) => a - b).forEach(fn => {
+    trajectory[fn] = ballPositions[fn];
+  });
+  const text = JSON.stringify({ ball_positions: trajectory }, null, 2);
+  navigator.clipboard.writeText(text).then(() => {
+    alert(`Ball trajectory copied! (${Object.keys(trajectory).length} frames)`);
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    alert('Ball trajectory copied to clipboard!');
+  });
+}
+
+function downloadBallJSON() {
+  const trajectory = {};
+  Object.keys(ballPositions).map(Number).sort((a, b) => a - b).forEach(fn => {
+    trajectory[fn] = ballPositions[fn];
+  });
+  const blob = new Blob([JSON.stringify({ ball_positions: trajectory }, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'ball_trajectory.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // ============================================================
 // KEYBOARD SHORTCUTS
 // ============================================================
 document.addEventListener('keydown', e => {
+  // Space for pan mode
+  if (e.key === ' ' && !e.repeat) {
+    e.preventDefault();
+    spaceHeld = true;
+    canvas.style.cursor = 'grab';
+    return;
+  }
+
   if (e.key === '1') setMode('roi');
   else if (e.key === '2') setMode('machine');
   else if (e.key === '3') setMode('home');
+  else if (e.key === '4') setMode('ball');
   else if (e.key === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undoLast(); }
   else if (e.key === 'Escape') clearCurrent();
+  // Zoom shortcuts
+  else if (e.key === '=' || e.key === '+') { e.preventDefault(); zoomBy(1.3); }
+  else if (e.key === '-') { e.preventDefault(); zoomBy(1 / 1.3); }
+  else if (e.key === '0') { e.preventDefault(); resetView(); }
+
+  // Ball tracking navigation
+  if (mode === 'ball') {
+    if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') {
+      e.preventDefault();
+      ballPrevFrame();
+    } else if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') {
+      e.preventDefault();
+      ballNextFrame();
+    } else if (e.key === 's' || e.key === 'S') {
+      if (!e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        ballSkipFrame();
+      }
+    }
+  }
+});
+
+document.addEventListener('keyup', e => {
+  if (e.key === ' ') {
+    spaceHeld = false;
+    if (!isPanning) {
+      canvas.style.cursor = 'crosshair';
+    }
+  }
 });
 
 // ============================================================
@@ -828,7 +1525,7 @@ document.addEventListener('keydown', e => {
 // ============================================================
 window.addEventListener('resize', () => {
   if (img) {
-    fitToScreen();
+    sizeCanvas();
     draw();
   }
 });

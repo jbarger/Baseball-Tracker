@@ -31,6 +31,7 @@ from common.filters import (
 )
 from common.tracking import ObjectTracker, TrackedObject, detect_contact
 from common.calibration import load_calibration, CageCalibration
+from common.machine_exit_detector import MachineExitDetector, MachineExitConfig
 
 # ---------- COCO class IDs ----------
 BALL_CLASS = 32
@@ -48,6 +49,8 @@ COLOR_ROI = (255, 255, 255)           # White
 COLOR_CONTACT = (0, 255, 255)         # Yellow flash
 COLOR_HUD_BG = (0, 0, 0)             # Black
 COLOR_HUD_TEXT = (255, 255, 255)      # White
+COLOR_MACHINE_EXIT = (255, 200, 0)    # Cyan-ish for machine-exit detections
+COLOR_SEARCH_REGION = (80, 80, 80)    # Dim gray for search region outline
 
 ACTIVE_COLORS = {
     BALL_CLASS: COLOR_BALL_ACTIVE,
@@ -119,6 +122,26 @@ def draw_rejected(frame: np.ndarray, results: list):
                      COLOR_REJECTED, 1)
             cv2.line(frame, (cx - size, cy + size), (cx + size, cy - size),
                      COLOR_REJECTED, 1)
+
+
+def draw_machine_exit_region(frame: np.ndarray, search_region, detection=None):
+    """Draw the machine-exit search region and any detection from it."""
+    x1, y1, x2, y2 = search_region
+    # Dashed-style rectangle for search region
+    cv2.rectangle(frame, (x1, y1), (x2, y2), COLOR_SEARCH_REGION, 1)
+    cv2.putText(frame, "MACHINE-EXIT", (x1, y1 - 5),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.35, COLOR_SEARCH_REGION, 1)
+
+    if detection is not None:
+        cx, cy, radius, conf, diff_val = detection
+        cx, cy = int(cx), int(cy)
+        r = max(int(radius * 2), 6)  # draw slightly larger than detected
+        # Crosshair + circle
+        cv2.circle(frame, (cx, cy), r, COLOR_MACHINE_EXIT, 2)
+        cv2.line(frame, (cx - r - 4, cy), (cx + r + 4, cy), COLOR_MACHINE_EXIT, 1)
+        cv2.line(frame, (cx, cy - r - 4), (cx, cy + r + 4), COLOR_MACHINE_EXIT, 1)
+        cv2.putText(frame, f"ME {conf:.0%}", (cx + r + 4, cy - 2),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, COLOR_MACHINE_EXIT, 1, cv2.LINE_AA)
 
 
 def draw_tracked_objects(frame: np.ndarray, tracks: list, fps: float,
@@ -237,6 +260,23 @@ def draw_hud(frame: np.ndarray, frame_idx: int, fps: float,
         y_cal -= 18
 
 
+def machine_exit_to_detection(me_result, frame_idx: int) -> Detection:
+    """Convert machine-exit detector result to a Detection object."""
+    cx, cy, radius, conf, diff_val = me_result
+    # Create a synthetic bounding box from the center + radius
+    r = max(radius, 5)  # minimum 5px radius for the bbox
+    return Detection(
+        cls_id=BALL_CLASS,
+        cls_name="sports ball",
+        conf=conf,
+        x1=cx - r,
+        y1=cy - r,
+        x2=cx + r,
+        y2=cy + r,
+        frame_idx=frame_idx,
+    )
+
+
 def main():
     if len(sys.argv) < 3:
         print("Usage: python smart_detect.py <input_video> <output_video> [--config path]")
@@ -297,8 +337,10 @@ def main():
 
     # Tracker
     track_config = config["tracking"]
+    max_missed = track_config.get("max_missed_frames", 10)
     tracker = ObjectTracker(
         max_match_distance=track_config["max_match_distance_px"],
+        max_missed_frames=max_missed,
     )
     contact_distance = track_config.get("contact_distance_px", 60)
 
@@ -322,6 +364,30 @@ def main():
     print(f"ROI polygon: {len(roi_polygon)} points {'(active)' if roi_polygon else '(disabled - full frame)'}")
     print(f"Filters: class={allowed_classes}, conf={conf_thresholds}, size={min_sizes}")
     print(f"Stationary: history={stat_config['history_frames']}f, var<{stat_config['max_variance_px']}px")
+
+    # Machine-exit ball detector (supplements YOLO for early ball flight)
+    me_detector = None
+    machine_bbox = config.get("calibration", {}).get("machine_bbox_px")
+    if machine_bbox and len(machine_bbox) == 4:
+        me_config_data = config.get("machine_exit_detector", {})
+        me_config = MachineExitConfig(
+            machine_bbox=machine_bbox,
+            search_extend_right=me_config_data.get("search_extend_right", 250),
+            search_extend_left=me_config_data.get("search_extend_left", 20),
+            search_extend_vertical=me_config_data.get("search_extend_vertical", 40),
+            min_diff_intensity=me_config_data.get("min_diff_intensity", 80.0),
+            bg_warmup_frames=me_config_data.get("bg_warmup_frames", 30),
+            bg_alpha=me_config_data.get("bg_alpha", 0.02),
+            min_blob_area=me_config_data.get("min_blob_area", 4),
+            max_blob_area=me_config_data.get("max_blob_area", 400),
+            max_aspect_ratio=me_config_data.get("max_aspect_ratio", 3.0),
+            min_confidence=me_config_data.get("min_confidence", 0.75),
+        )
+        me_detector = MachineExitDetector(me_config, height, width)
+        sr = me_detector.search_region
+        print(f"Machine-exit detector: search region ({sr[0]},{sr[1]})-({sr[2]},{sr[3]})")
+    else:
+        print("Machine-exit detector: DISABLED (no machine_bbox_px in config)")
 
     # Output writer
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -348,7 +414,12 @@ def main():
         )
         cal_tracker = ObjectTracker(
             max_match_distance=track_config["max_match_distance_px"],
+            max_missed_frames=max_missed,
         )
+        # Separate machine-exit detector for calibration pass
+        cal_me_detector = None
+        if machine_bbox and len(machine_bbox) == 4:
+            cal_me_detector = MachineExitDetector(me_config, height, width)
         ball_speeds_px = []
         cal_frame_idx = 0
 
@@ -364,12 +435,25 @@ def main():
             kept, _ = filter_by_size(kept, min_sizes)
             kept, _ = filter_by_confidence(kept, conf_thresholds)
             kept, _ = cal_stationary.update(kept)
+
+            # Machine-exit detector: supplement YOLO when no ball detected
+            if cal_me_detector is not None:
+                me_result = cal_me_detector.update(frame)
+                yolo_has_ball = any(d.cls_id == BALL_CLASS for d in kept)
+                if me_result is not None and not yolo_has_ball:
+                    kept.append(machine_exit_to_detection(me_result, cal_frame_idx))
+
             # Track
             cal_tracker.update(kept, cal_frame_idx)
             ball = cal_tracker.get_best_ball_track()
             if ball and ball.age >= 2:
                 spd = ball.speed_px_per_sec(fps)
-                if spd > 50:  # minimum threshold to be a real moving ball
+                # Minimum 200 px/s filters out jitter from stationary balls
+                # that briefly pass the dwell filter. A real pitched ball at
+                # ~45 mph covers significant pixels per frame.
+                # Maximum 2000 px/s filters out tracker-jump artifacts
+                # (~140 mph at typical calibration — above any cage speed).
+                if 200 < spd < 2000:
                     ball_speeds_px.append(spd)
             cal_frame_idx += 1
 
@@ -408,13 +492,18 @@ def main():
     )
     tracker = ObjectTracker(
         max_match_distance=track_config["max_match_distance_px"],
+        max_missed_frames=max_missed,
     )
+    # Fresh machine-exit detector for render pass
+    if machine_bbox and len(machine_bbox) == 4:
+        me_detector = MachineExitDetector(me_config, height, width)
 
     # Stats
     frame_idx = 0
     total_detections = 0
     total_filtered = 0
     total_tracked_ball_frames = 0
+    total_me_detections = 0
     contact_frames = []
     max_ball_speed_px = 0.0
     max_ball_speed_mph = 0.0
@@ -454,6 +543,15 @@ def main():
 
         total_filtered += len(all_rejected)
 
+        # --- Machine-exit detector: supplement YOLO for early ball flight ---
+        me_result = None
+        if me_detector is not None:
+            me_result = me_detector.update(frame)
+            yolo_has_ball = any(d.cls_id == BALL_CLASS for d in kept)
+            if me_result is not None and not yolo_has_ball:
+                kept.append(machine_exit_to_detection(me_result, frame_idx))
+                total_me_detections += 1
+
         # --- Tracking ---
         active_tracks = tracker.update(kept, frame_idx)
         best_ball = tracker.get_best_ball_track()
@@ -488,6 +586,10 @@ def main():
 
         # Stationary position markers
         draw_stationary_markers(annotated, stationary_filter.get_stationary_positions())
+
+        # Machine-exit search region and detection
+        if me_detector is not None:
+            draw_machine_exit_region(annotated, me_detector.search_region, me_result)
 
         # Rejected detections (dim)
         draw_rejected(annotated, all_rejected)
@@ -526,6 +628,7 @@ def main():
     print(f"Total detections:   {total_detections}")
     print(f"Filtered out:       {total_filtered} ({total_filtered / max(total_detections, 1) * 100:.0f}%)")
     print(f"Ball tracked in:    {total_tracked_ball_frames} frames")
+    print(f"Machine-exit dets:  {total_me_detections} frames (supplemented YOLO)")
     print(f"Stationary clusters: {len(stationary_filter.get_stationary_positions())}")
     print(f"Contact frames:     {contact_frames if contact_frames else 'None detected'}")
     print(f"Calibration:        {calibration.calibration_mode}")

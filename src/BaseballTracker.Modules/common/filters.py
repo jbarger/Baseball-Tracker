@@ -148,18 +148,28 @@ class StationaryFilter:
 
     A detection cluster is considered stationary if its center position
     variance over the history window is below the threshold.
+
+    Key design: a ball is only rejected as stationary if it has been
+    consistently detected near the same cluster position for several
+    consecutive frames. A ball that is merely passing through a stationary
+    position (e.g., a pitched ball flying past a ball on the ground)
+    will NOT be rejected — it hasn't dwelled long enough.
     """
 
     def __init__(self, history_frames: int = 10, max_variance_px: float = 8.0,
-                 cluster_radius: float = 30.0):
+                 cluster_radius: float = 30.0, dwell_frames: int = 3):
         self.history_frames = history_frames
         self.max_variance_px = max_variance_px
         self.cluster_radius = cluster_radius
+        self.dwell_frames = dwell_frames  # how many consecutive frames near a cluster = stationary
         # List of known stationary positions: [(cx, cy, hit_count)]
         self._stationary_clusters: List[List[float]] = []
         # Recent ball detection positions for variance calculation
         self._position_history: List[List[Tuple[float, float]]] = []
         self._frame_count = 0
+        # Per-cluster dwell tracker: cluster_idx -> consecutive frames a
+        # detection has been near it. Reset when no detection is nearby.
+        self._cluster_dwell: Dict[int, int] = {}
 
     def update(self, detections: List[Detection]) -> Tuple[List[Detection], List[FilterResult]]:
         """
@@ -175,30 +185,54 @@ class StationaryFilter:
         kept = list(other_dets)  # non-ball detections pass through
         rejected = []
 
+        # Track which clusters have a detection nearby this frame
+        clusters_hit_this_frame = set()
+
         for det in ball_dets:
-            if self._is_near_stationary_cluster(det.cx, det.cy):
-                rejected.append(FilterResult(
-                    detection=det,
-                    passed=False,
-                    reason="Stationary object"
-                ))
+            cluster_idx = self._nearest_stationary_cluster(det.cx, det.cy)
+            if cluster_idx is not None:
+                clusters_hit_this_frame.add(cluster_idx)
+                # Check dwell count: only reject if seen near this cluster
+                # for enough consecutive frames
+                dwell = self._cluster_dwell.get(cluster_idx, 0) + 1
+                self._cluster_dwell[cluster_idx] = dwell
+
+                if dwell >= self.dwell_frames:
+                    # This detection has been sitting here for several frames
+                    rejected.append(FilterResult(
+                        detection=det,
+                        passed=False,
+                        reason="Stationary object"
+                    ))
+                else:
+                    # Near a known cluster but hasn't dwelled long enough —
+                    # could be a ball passing through. Let it through.
+                    kept.append(det)
             else:
                 kept.append(det)
+
+        # Reset dwell count for clusters that had no detection this frame
+        for idx in list(self._cluster_dwell.keys()):
+            if idx not in clusters_hit_this_frame:
+                self._cluster_dwell[idx] = 0
 
         # Update stationary cluster model with this frame's ball positions
         self._update_clusters(ball_dets)
 
         return kept, rejected
 
-    def _is_near_stationary_cluster(self, cx: float, cy: float) -> bool:
-        """Check if a position is near a known stationary cluster."""
-        for cluster in self._stationary_clusters:
+    def _nearest_stationary_cluster(self, cx: float, cy: float) -> Optional[int]:
+        """
+        Return the index of the nearest stationary cluster within radius,
+        or None if no cluster is close enough.
+        """
+        for i, cluster in enumerate(self._stationary_clusters):
             dx = cx - cluster[0]
             dy = cy - cluster[1]
             dist = np.sqrt(dx * dx + dy * dy)
             if dist < self.cluster_radius:
-                return True
-        return False
+                return i
+        return None
 
     def _update_clusters(self, ball_dets: List[Detection]):
         """
@@ -228,7 +262,7 @@ class StationaryFilter:
         # Positions that appear in many frames at similar locations are stationary
         for px, py in all_positions:
             # Already known?
-            if self._is_near_stationary_cluster(px, py):
+            if self._nearest_stationary_cluster(px, py) is not None:
                 continue
 
             # Count appearances near this position across history frames
