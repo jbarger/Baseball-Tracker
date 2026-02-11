@@ -203,6 +203,82 @@
     transition: width 0.2s;
   }
 
+  /* --- Stream panel --- */
+  .stream-panel {
+    border: 1px solid #0f3460;
+    border-radius: 4px;
+    padding: 8px;
+    margin-bottom: 12px;
+    background: #0d1b2a;
+  }
+  .stream-panel h3 {
+    font-size: 12px;
+    color: #00d4ff;
+    margin: 0 0 6px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    user-select: none;
+  }
+  .stream-panel h3 .toggle-arrow {
+    font-size: 10px;
+    transition: transform 0.2s;
+  }
+  .stream-panel h3 .toggle-arrow.open { transform: rotate(90deg); }
+  .stream-panel .stream-body { display: none; }
+  .stream-panel .stream-body.open { display: block; }
+  .stream-radio-group {
+    display: flex;
+    gap: 8px;
+    margin: 4px 0 8px;
+  }
+  .stream-radio-group label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    color: #ccc;
+  }
+  .stream-radio-group input[type="radio"] { margin: 0; cursor: pointer; }
+  .stream-options {
+    margin: 4px 0 8px;
+    padding: 6px;
+    background: #16213e;
+    border-radius: 3px;
+    font-size: 11px;
+  }
+  .stream-options label { color: #888; font-size: 11px; display: block; margin-bottom: 2px; }
+  .stream-options select, .stream-options input[type="text"] {
+    width: 100%;
+    padding: 3px 6px;
+    background: #0d1b2a;
+    color: #e0e0e0;
+    border: 1px solid #0f3460;
+    border-radius: 3px;
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+  .stream-status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #555;
+    margin-right: 4px;
+  }
+  .stream-status-dot.active {
+    background: #00ff88;
+    box-shadow: 0 0 4px #00ff88;
+  }
+  .stream-btn-row {
+    display: flex;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .stream-btn-row .btn { flex: 1; padding: 5px 8px; font-size: 11px; }
+
   /* --- Status bar --- */
   .status-bar {
     position: fixed;
@@ -330,8 +406,62 @@
   <canvas id="canvas" style="display:none"></canvas>
 </div>
 
+<!-- Hidden img for MJPEG stream rendering -->
+<img id="streamImg" style="display:none" crossorigin="anonymous">
+
 <!-- Side Panel -->
 <div class="side-panel" id="side-panel">
+  <!-- Stream panel (always visible, collapsible) -->
+  <div class="stream-panel" id="stream-panel">
+    <h3 onclick="toggleStreamPanel()">
+      <span class="toggle-arrow" id="stream-toggle-arrow">&#9654;</span>
+      <span class="stream-status-dot" id="stream-dot"></span>
+      Live Camera
+      <span id="stream-fps-badge" style="margin-left:auto; font-size:10px; color:#888;"></span>
+    </h3>
+    <div class="stream-body" id="stream-body">
+      <div class="stream-radio-group">
+        <label><input type="radio" name="stream-source" value="off" checked onchange="onStreamSourceChange()"> Off</label>
+        <label><input type="radio" name="stream-source" value="usb" onchange="onStreamSourceChange()"> USB Camera</label>
+        <label><input type="radio" name="stream-source" value="rtmp" onchange="onStreamSourceChange()"> RTMP Stream</label>
+      </div>
+
+      <!-- USB options -->
+      <div class="stream-options" id="stream-usb-options" style="display:none;">
+        <label>Camera device</label>
+        <select id="stream-usb-device">
+          <option value="0">Device 0</option>
+        </select>
+        <button class="btn" onclick="streamDetectCameras()" style="width:100%; margin-top:2px; padding:3px; font-size:10px;">Detect Cameras</button>
+      </div>
+
+      <!-- RTMP options -->
+      <div class="stream-options" id="stream-rtmp-options" style="display:none;">
+        <label>RTMP URL</label>
+        <input type="text" id="stream-rtmp-url" value="rtmp://localhost:1935/live/stream" placeholder="rtmp://host:port/app/key">
+      </div>
+
+      <!-- Controls -->
+      <div class="stream-btn-row">
+        <button class="btn success" id="stream-start-btn" onclick="streamStart()" disabled>Start</button>
+        <button class="btn danger" id="stream-stop-btn" onclick="streamStop()" disabled>Stop</button>
+        <button class="btn" id="stream-snapshot-btn" onclick="streamSnapshot()" disabled>Snapshot</button>
+      </div>
+
+      <!-- Detection toggle -->
+      <div style="margin-top:6px;">
+        <label style="font-size:11px; cursor:pointer; display:flex; align-items:center; gap:4px;">
+          <input type="checkbox" id="stream-detection-toggle" checked onchange="toggleDetection(this.checked)">
+          Detection Overlay
+          <span id="stream-det-fps" style="margin-left:auto; font-size:10px; color:#888;"></span>
+        </label>
+      </div>
+
+      <!-- Status -->
+      <div id="stream-status-text" style="font-size:10px; color:#888; margin-top:4px;"></div>
+    </div>
+  </div>
+
   <!-- Cage annotation panels (visible in roi/machine/home modes) -->
   <div id="cage-panels">
     <h3>&#128308; ROI Polygon <span id="roi-count">(0 points)</span></h3>
@@ -495,6 +625,12 @@ let isPanning = false;
 let panMouseStartX = 0, panMouseStartY = 0;
 let panStartPanX = 0, panStartPanY = 0;
 let spaceHeld = false;
+
+// Live stream state
+let streamActive = false;
+const streamImg = document.getElementById('streamImg');
+let streamAnimFrame = null;  // requestAnimationFrame ID
+let streamImgReady = false;  // true once streamImg has loaded at least one frame
 
 // ============================================================
 // COORDINATE TRANSFORMS
@@ -1064,7 +1200,8 @@ canvas.addEventListener('contextmenu', e => {
 // DRAWING
 // ============================================================
 function draw() {
-  if (!img) return;
+  // Allow draw if we have a static image OR a live stream
+  if (!img && !streamActive) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   // Draw dark background
@@ -1072,10 +1209,24 @@ function draw() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   // Draw image using virtual camera transform
+  // Use stream frame if active, otherwise static image
+  const drawSource = (streamActive && streamImgReady) ? streamImg : img;
+  if (!drawSource) return;
+
+  // If streaming and no static img dimensions set, use stream dimensions
+  if (streamActive && streamImgReady && !img) {
+    if (imgW === 0) {
+      imgW = streamImg.naturalWidth || 1920;
+      imgH = streamImg.naturalHeight || 1080;
+      sizeCanvas();
+      resetView();
+    }
+  }
+
   const [imgScreenX, imgScreenY] = i2s(0, 0);
   const drawW = imgW * viewZoom;
   const drawH = imgH * viewZoom;
-  ctx.drawImage(img, imgScreenX, imgScreenY, drawW, drawH);
+  ctx.drawImage(drawSource, imgScreenX, imgScreenY, drawW, drawH);
 
   // Thin border around image extent
   ctx.strokeStyle = '#333';
@@ -1885,6 +2036,240 @@ function drawCalibrationOverlay(ctx) {
       ctx.arc(sp[0], sp[1], 4, 0, Math.PI * 2);
       ctx.fill();
     });
+  }
+}
+
+// ============================================================
+// LIVE CAMERA STREAMING
+// ============================================================
+
+function toggleStreamPanel() {
+  const body = document.getElementById('stream-body');
+  const arrow = document.getElementById('stream-toggle-arrow');
+  const isOpen = body.classList.toggle('open');
+  arrow.classList.toggle('open', isOpen);
+}
+
+function onStreamSourceChange() {
+  const source = document.querySelector('input[name="stream-source"]:checked').value;
+  document.getElementById('stream-usb-options').style.display = (source === 'usb') ? 'block' : 'none';
+  document.getElementById('stream-rtmp-options').style.display = (source === 'rtmp') ? 'block' : 'none';
+  document.getElementById('stream-start-btn').disabled = (source === 'off');
+
+  // Auto-detect USB cameras when USB is selected
+  if (source === 'usb') {
+    streamDetectCameras();
+  }
+}
+
+async function streamDetectCameras() {
+  try {
+    const resp = await fetch('/api/stream/status');
+    const data = await resp.json();
+    const sel = document.getElementById('stream-usb-device');
+    sel.innerHTML = '';
+    const cameras = data.usb_cameras || [];
+    if (cameras.length === 0) {
+      sel.innerHTML = '<option value="0">No cameras found (try device 0)</option>';
+    } else {
+      cameras.forEach(cam => {
+        const opt = document.createElement('option');
+        opt.value = cam.index;
+        opt.textContent = `Device ${cam.index} (${cam.resolution})`;
+        sel.appendChild(opt);
+      });
+    }
+  } catch (e) {
+    console.warn('Could not detect cameras:', e);
+  }
+}
+
+async function streamStart() {
+  const source = document.querySelector('input[name="stream-source"]:checked').value;
+  if (source === 'off') return;
+
+  const body = {source};
+  if (source === 'usb') {
+    body.device = parseInt(document.getElementById('stream-usb-device').value);
+  } else if (source === 'rtmp') {
+    body.url = document.getElementById('stream-rtmp-url').value;
+  }
+
+  document.getElementById('stream-start-btn').disabled = true;
+  document.getElementById('stream-status-text').textContent = 'Starting...';
+
+  try {
+    const resp = await fetch('/api/stream/start', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      document.getElementById('stream-status-text').textContent = `Error: ${data.detail || 'failed'}`;
+      document.getElementById('stream-start-btn').disabled = false;
+      return;
+    }
+
+    // Stream is active — connect the MJPEG feed
+    streamActive = true;
+    streamImgReady = false;
+
+    // Set up the hidden img to receive MJPEG stream
+    streamImg.onload = function() {
+      if (!streamImgReady) {
+        streamImgReady = true;
+        // Set image dimensions from stream if no static image loaded
+        if (!img) {
+          imgW = streamImg.naturalWidth;
+          imgH = streamImg.naturalHeight;
+          sizeCanvas();
+          resetView();
+          document.getElementById('placeholder').style.display = 'none';
+          canvas.style.display = 'block';
+        }
+        document.getElementById('status-image').textContent =
+          `${data.width}x${data.height} — LIVE (${source})`;
+      }
+      // Trigger a redraw for every new MJPEG frame
+      draw();
+    };
+    streamImg.src = '/api/stream/feed?quality=80&t=' + Date.now();
+
+    // Start the render loop for smooth overlay updates
+    startStreamRenderLoop();
+
+    // Update UI state
+    document.getElementById('stream-dot').classList.add('active');
+    document.getElementById('stream-stop-btn').disabled = false;
+    document.getElementById('stream-snapshot-btn').disabled = false;
+    document.getElementById('stream-status-text').textContent =
+      `${data.width}x${data.height} @ ${data.nominal_fps}fps — ${data.source_info}`;
+
+    // Start FPS polling
+    startStreamFPSPoll();
+
+  } catch (e) {
+    document.getElementById('stream-status-text').textContent = `Error: ${e.message}`;
+    document.getElementById('stream-start-btn').disabled = false;
+  }
+}
+
+async function streamStop() {
+  try {
+    await fetch('/api/stream/stop', {method: 'POST'});
+  } catch (e) {
+    // Ignore errors on stop
+  }
+
+  streamActive = false;
+  streamImgReady = false;
+  streamImg.src = '';
+
+  // Cancel render loop
+  if (streamAnimFrame) {
+    cancelAnimationFrame(streamAnimFrame);
+    streamAnimFrame = null;
+  }
+
+  // Update UI
+  document.getElementById('stream-dot').classList.remove('active');
+  document.getElementById('stream-start-btn').disabled = false;
+  document.getElementById('stream-stop-btn').disabled = true;
+  document.getElementById('stream-snapshot-btn').disabled = true;
+  document.getElementById('stream-status-text').textContent = 'Stopped';
+  document.getElementById('stream-fps-badge').textContent = '';
+
+  // Redraw with static image if available
+  draw();
+}
+
+async function streamSnapshot() {
+  if (!streamActive) return;
+
+  try {
+    const resp = await fetch('/api/stream/snapshot?quality=95');
+    if (!resp.ok) throw new Error('Snapshot failed');
+    const blob = await resp.blob();
+
+    // Load as static image
+    const url = URL.createObjectURL(blob);
+    img = new Image();
+    img.onload = () => {
+      imgW = img.width;
+      imgH = img.height;
+      document.getElementById('status-image').textContent =
+        `${imgW}x${imgH} — snapshot`;
+      URL.revokeObjectURL(url);
+
+      // Stop the stream so we can annotate the snapshot
+      streamStop();
+      sizeCanvas();
+      resetView();
+      draw();
+    };
+    img.src = url;
+  } catch (e) {
+    console.error('Snapshot error:', e);
+  }
+}
+
+function startStreamRenderLoop() {
+  // MJPEG <img> onload only fires once in most browsers (Chrome, Firefox).
+  // We need a requestAnimationFrame loop to continuously redraw the canvas
+  // from the MJPEG stream source while streaming is active.
+  function loop() {
+    if (!streamActive) {
+      streamAnimFrame = null;
+      return;
+    }
+    draw();
+    streamAnimFrame = requestAnimationFrame(loop);
+  }
+  if (streamAnimFrame) cancelAnimationFrame(streamAnimFrame);
+  streamAnimFrame = requestAnimationFrame(loop);
+}
+
+let _fpsIntervalId = null;
+function startStreamFPSPoll() {
+  if (_fpsIntervalId) clearInterval(_fpsIntervalId);
+  _fpsIntervalId = setInterval(async () => {
+    if (!streamActive) {
+      clearInterval(_fpsIntervalId);
+      _fpsIntervalId = null;
+      return;
+    }
+    try {
+      const resp = await fetch('/api/stream/status');
+      const data = await resp.json();
+      document.getElementById('stream-fps-badge').textContent =
+        data.active ? `${data.measured_fps} fps` : '';
+      // Detection FPS badge
+      if (data.detection && data.detection.enabled) {
+        document.getElementById('stream-det-fps').textContent =
+          `${data.detection.detection_fps} det/s`;
+      } else {
+        document.getElementById('stream-det-fps').textContent = '';
+      }
+    } catch (e) {
+      // Ignore polling errors
+    }
+  }, 2000);
+}
+
+async function toggleDetection(enabled) {
+  try {
+    const resp = await fetch('/api/stream/detection', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled: enabled}),
+    });
+    const data = await resp.json();
+    document.getElementById('stream-det-fps').textContent =
+      data.enabled ? 'loading...' : '';
+  } catch (e) {
+    console.error('Detection toggle error:', e);
   }
 }
 
