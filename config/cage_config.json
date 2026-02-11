@@ -1,43 +1,92 @@
 {
   "machine_type": "iron_mike_mp6",
   "machine_distance_ft": 60,
-
+  "camera_model": "dji_osmo_action_3_wide",
+  "ball_type": "yellow_dimple",
   "calibration": {
-    "machine_bbox_px": [972, 441, 1035, 522],
+    "machine_bbox_px": [
+      972,
+      441,
+      1035,
+      522
+    ],
     "pixels_per_inch": null,
     "home_plate_px": null,
     "known_pitch_speed_mph": 47.5,
     "notes": "60-foot mound, cage sign reads 45-50mph. Machine bbox measured via annotate.html. known_pitch_speed_mph is midpoint of sign range, used to calibrate pixel-to-mph conversion."
   },
-
-  "roi_polygon": [[684, 1075], [689, 9], [1780, 7], [1786, 1076]],
-
+  "cage_geometry": {
+    "camera_height_ft": 2.4276,
+    "camera_behind_plate_ft": 0.0,
+    "release_height_ft": 3.5,
+    "strike_zone_height_ft": 2.5,
+    "cage_length_ft": 70,
+    "cage_width_ft": 14,
+    "cage_height_ft": 12,
+    "video_width": 1920,
+    "video_height": 1080,
+    "notes": "Camera behind home plate ~5ft high looking toward machine at 60ft. Release height is ball exit point on Iron Mike MP-6. Adjust if you can measure more precisely.",
+    "camera_x_ft": -1.3311,
+    "aim_offset_x": -25.61,
+    "aim_offset_y": -69.46,
+    "focal_length_px": 1925.05,
+    "k1": -0.6,
+    "k2": -0.099998,
+    "calibration_meta": {
+      "method": "auto_calibrate_differential_evolution",
+      "stage": 2,
+      "objective": 79.109265,
+      "mean_speed_error_pct": 2.63,
+      "ground_truth_file": "ground_truth_00351348.json",
+      "ground_truth_frames": 38,
+      "timestamp": "2026-02-11T01:00:06.432719"
+    }
+  },
+  "roi_polygon": [
+    [
+      684,
+      1075
+    ],
+    [
+      689,
+      9
+    ],
+    [
+      1780,
+      7
+    ],
+    [
+      1786,
+      1076
+    ]
+  ],
   "detection": {
     "model": "yolov8n.pt",
     "confidence_thresholds": {
       "sports_ball": 0.15,
       "baseball_bat": 0.25,
-      "person": 0.70
+      "person": 0.7
     },
     "min_size_px": {
       "person_height": 80,
       "person_width": 40
     },
-    "allowed_classes": [0, 32, 34]
+    "allowed_classes": [
+      0,
+      32,
+      34
+    ]
   },
-
   "stationary_filter": {
     "history_frames": 10,
     "max_variance_px": 8.0
   },
-
   "tracking": {
     "max_match_distance_px": 150,
     "min_trajectory_frames": 3,
     "contact_distance_px": 60,
     "max_missed_frames": 10
   },
-
   "machine_exit_detector": {
     "search_extend_right": 250,
     "search_extend_left": 20,

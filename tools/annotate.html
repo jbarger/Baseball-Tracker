@@ -267,6 +267,7 @@
     <button class="btn" id="btn-machine" onclick="setMode('machine')">2: Machine BBox</button>
     <button class="btn" id="btn-home" onclick="setMode('home')">3: Home Plate</button>
     <button class="btn" id="btn-ball" onclick="setMode('ball')">4: Ball Tracking</button>
+    <button class="btn" id="btn-calibrate" onclick="setMode('calibrate')">5: Calibrate</button>
   </div>
 
   <div class="tool-group">
@@ -381,6 +382,66 @@
       <button class="btn success" onclick="downloadBallJSON()">&#128190; Download</button>
     </div>
   </div>
+
+  <!-- Calibrate panel (visible in calibrate mode) -->
+  <div id="calibrate-panel" class="ball-track-panel">
+    <h3>&#128247; Camera Calibration</h3>
+    <p style="font-size:11px; color:#888; margin-bottom:8px;">
+      Configure camera model, cage measurements, and run auto-calibration
+      from ground truth data. Toggle <strong>3D Overlay</strong> to preview
+      the projected pitch line.
+    </p>
+
+    <h3>Camera Model</h3>
+    <select id="cal-camera-model" style="width:100%; padding:4px; margin-bottom:6px; background:#0d1b2a; color:#e0e0e0; border:1px solid #0f3460; border-radius:4px;" onchange="onCameraModelChange()">
+      <option value="">-- Select Camera --</option>
+    </select>
+    <div id="cal-camera-info" style="font-size:11px; color:#888; margin-bottom:8px;"></div>
+
+    <h3>Ball Type</h3>
+    <select id="cal-ball-type" style="width:100%; padding:4px; margin-bottom:8px; background:#0d1b2a; color:#e0e0e0; border:1px solid #0f3460; border-radius:4px;">
+      <option value="yellow_dimple">Yellow Dimple Ball (2.85")</option>
+      <option value="white_regulation">White Regulation (2.9")</option>
+      <option value="softball">Softball (3.82")</option>
+    </select>
+
+    <h3>Cage Measurements</h3>
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px; font-size:12px; margin-bottom:8px;">
+      <label style="color:#888;">Mound distance (ft)</label>
+      <input type="number" id="cal-mound-dist" value="60" step="1" style="width:100%; padding:2px 4px; background:#0d1b2a; color:#e0e0e0; border:1px solid #0f3460; border-radius:3px;">
+      <label style="color:#888;">Camera height (ft)</label>
+      <input type="number" id="cal-cam-height" value="5.0" step="0.5" style="width:100%; padding:2px 4px; background:#0d1b2a; color:#e0e0e0; border:1px solid #0f3460; border-radius:3px;">
+      <label style="color:#888;">Behind plate (ft)</label>
+      <input type="number" id="cal-cam-behind" value="2.0" step="0.5" style="width:100%; padding:2px 4px; background:#0d1b2a; color:#e0e0e0; border:1px solid #0f3460; border-radius:3px;">
+      <label style="color:#888;">Release height (ft)</label>
+      <input type="number" id="cal-release-h" value="3.5" step="0.25" style="width:100%; padding:2px 4px; background:#0d1b2a; color:#e0e0e0; border:1px solid #0f3460; border-radius:3px;">
+      <label style="color:#888;">Strike zone (ft)</label>
+      <input type="number" id="cal-strike-h" value="2.5" step="0.25" style="width:100%; padding:2px 4px; background:#0d1b2a; color:#e0e0e0; border:1px solid #0f3460; border-radius:3px;">
+      <label style="color:#888;">Sign speed (mph)</label>
+      <input type="number" id="cal-sign-speed" value="47.5" step="0.5" style="width:100%; padding:2px 4px; background:#0d1b2a; color:#e0e0e0; border:1px solid #0f3460; border-radius:3px;">
+    </div>
+
+    <h3>Actions</h3>
+    <div style="display:flex; flex-direction:column; gap:4px; margin-bottom:8px;">
+      <button class="btn" onclick="calLoadConfig()">Load Config from Server</button>
+      <button class="btn success" onclick="calSaveConfig()">Save Config to Server</button>
+      <button class="btn" onclick="calRunAutoCalibrate()" id="cal-run-btn">Run Auto-Calibrate</button>
+      <label style="font-size:12px; display:flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="checkbox" id="cal-overlay-toggle" onchange="draw()"> Show 3D Overlay
+      </label>
+    </div>
+
+    <h3>Results</h3>
+    <div id="cal-results" style="font-size:11px; color:#888; background:#0d1b2a; padding:6px; border-radius:4px; max-height:200px; overflow-y:auto; font-family:monospace; white-space:pre-wrap;">
+      No calibration run yet.
+    </div>
+
+    <h3 style="margin-top:8px;">Optimized Parameters</h3>
+    <div class="json-output" id="cal-json-output">{ }</div>
+    <div style="margin-top:6px; display:flex; gap:6px;">
+      <button class="btn success" onclick="calCopyParams()">Copy JSON</button>
+    </div>
+  </div>
 </div>
 
 <!-- Status Bar -->
@@ -478,12 +539,14 @@ function setMode(m) {
     if (b.id === 'btn-' + m) b.classList.add('active');
     else if (b.id.startsWith('btn-')) b.classList.remove('active');
   });
-  const names = { roi: 'ROI Polygon', machine: 'Machine BBox', home: 'Home Plate', ball: 'Ball Tracking' };
+  const names = { roi: 'ROI Polygon', machine: 'Machine BBox', home: 'Home Plate', ball: 'Ball Tracking', calibrate: 'Calibrate' };
   document.getElementById('status-mode').textContent = names[m];
 
   // Toggle panel visibility
-  document.getElementById('cage-panels').style.display = (m === 'ball') ? 'none' : 'block';
+  const isCage = (m !== 'ball' && m !== 'calibrate');
+  document.getElementById('cage-panels').style.display = isCage ? 'block' : 'none';
   document.getElementById('ball-panel').className = (m === 'ball') ? 'ball-track-panel visible' : 'ball-track-panel';
+  document.getElementById('calibrate-panel').className = (m === 'calibrate') ? 'ball-track-panel visible' : 'ball-track-panel';
 
   // Toggle stills button visibility
   document.getElementById('btn-load-stills').style.display = (m === 'ball') ? '' : 'none';
@@ -1024,6 +1087,13 @@ function draw() {
     return;
   }
 
+  // Calibration overlay (pitch line, GT points)
+  if (mode === 'calibrate') {
+    drawCalibrationOverlay(ctx);
+    drawHint();
+    return;
+  }
+
   // ROI polygon
   if (roiPoints.length > 0) {
     ctx.strokeStyle = '#ffffff';
@@ -1227,6 +1297,7 @@ function drawHint() {
     machine: 'Click & drag bounding box \u2022 Scroll=zoom \u2022 Space+drag=pan',
     home: 'Click to place \u2022 Ctrl+click to move \u2022 Scroll=zoom \u2022 Space+drag=pan',
     ball: 'Click on ball \u2022 S=skip \u2022 \u2190\u2192=navigate \u2022 Ctrl+click=move \u2022 Scroll=zoom \u2022 Space+drag=pan',
+    calibrate: 'Configure camera model & cage measurements \u2022 Load Config from server \u2022 Run Auto-Calibrate with GT data',
   };
   ctx.fillText(hints[mode] || '', 10, canvas.height - 6);
 }
@@ -1487,6 +1558,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === '2') setMode('machine');
   else if (e.key === '3') setMode('home');
   else if (e.key === '4') setMode('ball');
+  else if (e.key === '5') setMode('calibrate');
   else if (e.key === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undoLast(); }
   else if (e.key === 'Escape') clearCurrent();
   // Zoom shortcuts
@@ -1529,6 +1601,295 @@ window.addEventListener('resize', () => {
     draw();
   }
 });
+
+// ============================================================
+// CALIBRATION MODE
+// ============================================================
+let calCameras = null;       // camera models database
+let calOptimizedParams = null; // last optimizer result
+let calOverlayData = null;   // projected overlay points
+
+// Detect if we're served by the calibration server
+const calApiBase = (window.location.port === '8765' || window.location.pathname === '/') ? '' : null;
+
+function calIsServerAvailable() {
+  return calApiBase !== null;
+}
+
+async function calLoadCamerasDB() {
+  if (calCameras) return;
+  try {
+    const resp = await fetch('/api/cameras');
+    if (resp.ok) {
+      calCameras = await resp.json();
+      const select = document.getElementById('cal-camera-model');
+      const cameras = calCameras.cameras || {};
+      for (const [key, cam] of Object.entries(cameras)) {
+        if (key === 'custom') continue;
+        const opt = document.createElement('option');
+        opt.value = key;
+        opt.textContent = cam.name;
+        select.appendChild(opt);
+      }
+    }
+  } catch (e) {
+    // Server not available — populate from embedded defaults
+    const defaults = [
+      { key: 'dji_osmo_action_3_wide', name: 'DJI Osmo Action 3 (Wide FOV)' },
+      { key: 'dji_osmo_action_3_standard', name: 'DJI Osmo Action 3 (Standard FOV)' },
+      { key: 'generic_action_cam', name: 'Generic Action Camera' },
+    ];
+    const select = document.getElementById('cal-camera-model');
+    defaults.forEach(d => {
+      const opt = document.createElement('option');
+      opt.value = d.key;
+      opt.textContent = d.name;
+      select.appendChild(opt);
+    });
+  }
+}
+
+function onCameraModelChange() {
+  const key = document.getElementById('cal-camera-model').value;
+  const info = document.getElementById('cal-camera-info');
+  if (!key) { info.textContent = ''; return; }
+
+  if (calCameras && calCameras.cameras && calCameras.cameras[key]) {
+    const cam = calCameras.cameras[key];
+    const sensor = cam.sensor_size_mm;
+    const fov = cam.fov_degrees;
+    const dist = cam.distortion_coefficients || {};
+    info.innerHTML = `${cam.name}<br>` +
+      `Sensor: ${sensor ? sensor[0] + 'x' + sensor[1] + 'mm' : '?'}, ` +
+      `Focal: ${cam.focal_length_mm || '?'}mm, ` +
+      `FOV: ${fov || '?'}&deg;<br>` +
+      `Distortion: k1=${dist.k1 || 0}, k2=${dist.k2 || 0}`;
+  } else {
+    info.textContent = key;
+  }
+}
+
+async function calLoadConfig() {
+  try {
+    const resp = await fetch('/api/config');
+    if (!resp.ok) { alert('Failed to load config: ' + resp.statusText); return; }
+    const config = await resp.json();
+
+    // Populate UI from config
+    if (config.camera_model) {
+      document.getElementById('cal-camera-model').value = config.camera_model;
+      onCameraModelChange();
+    }
+    if (config.ball_type) {
+      document.getElementById('cal-ball-type').value = config.ball_type;
+    }
+    document.getElementById('cal-mound-dist').value = config.machine_distance_ft || 60;
+    if (config.calibration) {
+      document.getElementById('cal-sign-speed').value = config.calibration.known_pitch_speed_mph || 47.5;
+    }
+    const geo = config.cage_geometry || {};
+    document.getElementById('cal-cam-height').value = geo.camera_height_ft || 5;
+    document.getElementById('cal-cam-behind').value = geo.camera_behind_plate_ft || 2;
+    document.getElementById('cal-release-h').value = geo.release_height_ft || 3.5;
+    document.getElementById('cal-strike-h').value = geo.strike_zone_height_ft || 2.5;
+
+    document.getElementById('cal-results').textContent = 'Config loaded from server.';
+  } catch (e) {
+    alert('Cannot connect to calibration server.\nStart it with: python -m uvicorn scripts.calibration_server:app --port 8765');
+  }
+}
+
+async function calSaveConfig() {
+  const config = calBuildConfigFromUI();
+  try {
+    const resp = await fetch('/api/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ config }),
+    });
+    if (!resp.ok) { alert('Failed to save: ' + resp.statusText); return; }
+    const result = await resp.json();
+    document.getElementById('cal-results').textContent =
+      'Config saved!\n' + (result.backup ? 'Backup: ' + result.backup : '');
+  } catch (e) {
+    alert('Cannot connect to calibration server.');
+  }
+}
+
+function calBuildConfigFromUI() {
+  return {
+    camera_model: document.getElementById('cal-camera-model').value || undefined,
+    ball_type: document.getElementById('cal-ball-type').value,
+    machine_distance_ft: parseFloat(document.getElementById('cal-mound-dist').value),
+    calibration: {
+      known_pitch_speed_mph: parseFloat(document.getElementById('cal-sign-speed').value),
+      machine_bbox_px: machineBBox,
+    },
+    cage_geometry: {
+      camera_height_ft: parseFloat(document.getElementById('cal-cam-height').value),
+      camera_behind_plate_ft: parseFloat(document.getElementById('cal-cam-behind').value),
+      release_height_ft: parseFloat(document.getElementById('cal-release-h').value),
+      strike_zone_height_ft: parseFloat(document.getElementById('cal-strike-h').value),
+    },
+  };
+}
+
+async function calRunAutoCalibrate() {
+  // Need ball positions for ground truth
+  const ballKeys = Object.keys(ballPositions);
+  if (ballKeys.length < 3) {
+    alert('Need at least 3 ball positions for auto-calibration.\nUse mode 4 (Ball Tracking) to mark ball positions in stills first.');
+    return;
+  }
+
+  const gt = { ball_positions: {}, fps: 59.94 };
+  ballKeys.map(Number).sort((a, b) => a - b).forEach(fn => {
+    gt.ball_positions[fn] = ballPositions[fn];
+  });
+
+  const btn = document.getElementById('cal-run-btn');
+  btn.textContent = 'Running...';
+  btn.disabled = true;
+  const results = document.getElementById('cal-results');
+  results.textContent = 'Optimizing camera parameters...\nThis may take 30-60 seconds.';
+
+  try {
+    const resp = await fetch('/api/calibrate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ground_truth: gt,
+        config_overrides: calBuildConfigFromUI(),
+      }),
+    });
+
+    if (!resp.ok) {
+      const err = await resp.text();
+      results.textContent = 'Calibration failed: ' + err;
+      return;
+    }
+
+    const data = await resp.json();
+    calOptimizedParams = data.params;
+
+    // Display results
+    let text = '=== AUTO-CALIBRATION RESULTS ===\n\n';
+    text += `Target speed: ${data.summary.target_speed_mph} mph\n`;
+    text += `Mean 3D speed: ${data.summary.mean_speed_mph} mph\n`;
+    text += `Mean error: ${data.summary.mean_error_pct}%\n`;
+    text += `Std dev: ${data.summary.std_speed_mph} mph\n\n`;
+    text += `Camera: (${data.params.camera_x_ft}, ${data.params.camera_height_ft}, -${data.params.camera_behind_plate_ft}) ft\n`;
+    text += `Focal: ${data.params.focal_length_px} px\n`;
+    text += `Aim: (${data.params.aim_offset_x}, ${data.params.aim_offset_y}) px\n\n`;
+
+    text += 'Per-frame speeds:\n';
+    data.frames.forEach(f => {
+      text += `  F${f.frame}: ${f.speed_mph || '?'} mph (${f.error_pct > 0 ? '+' : ''}${f.error_pct || '?'}%) @ ${f.depth_ft || '?'}ft\n`;
+    });
+
+    results.textContent = text;
+
+    // Update JSON output
+    document.getElementById('cal-json-output').textContent = JSON.stringify(data.params, null, 2);
+
+    // Refresh overlay
+    draw();
+  } catch (e) {
+    results.textContent = 'Error: ' + e.message + '\nIs the calibration server running?';
+  } finally {
+    btn.textContent = 'Run Auto-Calibrate';
+    btn.disabled = false;
+  }
+}
+
+function calCopyParams() {
+  const text = document.getElementById('cal-json-output').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    alert('Calibration parameters copied to clipboard!');
+  }).catch(() => {});
+}
+
+// Draw calibration overlay on canvas (projected pitch line + machine outline)
+function drawCalibrationOverlay(ctx) {
+  if (mode !== 'calibrate') return;
+  if (!document.getElementById('cal-overlay-toggle').checked) return;
+  if (!calOptimizedParams) return;
+
+  // Use a simple client-side projection for the overlay
+  const p = calOptimizedParams;
+  const releaseH = parseFloat(document.getElementById('cal-release-h').value) || 3.5;
+  const strikeH = parseFloat(document.getElementById('cal-strike-h').value) || 2.5;
+  const moundDist = parseFloat(document.getElementById('cal-mound-dist').value) || 60;
+
+  // Project pitch line: 11 points from mound to plate
+  const pitchPoints = [];
+  for (let i = 0; i <= 10; i++) {
+    const t = i / 10;
+    const z = moundDist * (1 - t);
+    const y = releaseH + t * (strikeH - releaseH);
+    const x = 0;
+
+    // Simple pinhole projection
+    const dz = (z - (-p.camera_behind_plate_ft)) * 12; // to inches
+    if (dz <= 0) continue;
+    const dx = (x - p.camera_x_ft) * 12;
+    const dy = (y - p.camera_height_ft) * 12;
+
+    const u = p.focal_length_px * dx / dz + imgW / 2 + p.aim_offset_x;
+    const v = p.focal_length_px * (-dy) / dz + imgH / 2 + p.aim_offset_y;
+
+    pitchPoints.push({ u, v, z });
+  }
+
+  // Draw pitch line
+  if (pitchPoints.length >= 2) {
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(0, 212, 255, 0.7)';
+    ctx.lineWidth = 2 / viewZoom;
+    ctx.setLineDash([6 / viewZoom, 4 / viewZoom]);
+
+    const first = i2s(pitchPoints[0].u, pitchPoints[0].v);
+    ctx.moveTo(first[0], first[1]);
+    for (let i = 1; i < pitchPoints.length; i++) {
+      const pt = i2s(pitchPoints[i].u, pitchPoints[i].v);
+      ctx.lineTo(pt[0], pt[1]);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Draw depth markers
+    pitchPoints.forEach(pt => {
+      const sp = i2s(pt.u, pt.v);
+      ctx.beginPath();
+      ctx.arc(sp[0], sp[1], 3, 0, Math.PI * 2);
+      ctx.fillStyle = pt.z > 30 ? 'rgba(0, 212, 255, 0.8)' : 'rgba(0, 255, 136, 0.8)';
+      ctx.fill();
+
+      // Label every other point
+      if (Math.round(pt.z) % 12 < 2) {
+        ctx.fillStyle = '#fff';
+        ctx.font = `${10}px sans-serif`;
+        ctx.fillText(`${Math.round(pt.z)}ft`, sp[0] + 5, sp[1] - 5);
+      }
+    });
+  }
+
+  // Draw ball GT positions if available
+  const ballKeys = Object.keys(ballPositions);
+  if (ballKeys.length > 0) {
+    ctx.fillStyle = 'rgba(255, 255, 0, 0.6)';
+    ballKeys.forEach(fn => {
+      const [bx, by] = ballPositions[fn];
+      const sp = i2s(bx, by);
+      ctx.beginPath();
+      ctx.arc(sp[0], sp[1], 4, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+}
+
+// Initialize cameras DB when page loads
+calLoadCamerasDB();
 
 // Init
 updateUI();

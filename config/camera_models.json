@@ -1,0 +1,78 @@
+{
+  "cameras": {
+    "dji_osmo_action_3_wide": {
+      "name": "DJI Osmo Action 3 (Wide FOV)",
+      "sensor_size_mm": [7.6, 5.7],
+      "focal_length_mm": 12.7,
+      "fov_degrees": 155,
+      "aperture": "f/2.8",
+      "resolutions": {
+        "4k_120": [3840, 2160],
+        "1080_60": [1920, 1080],
+        "1080_240": [1920, 1080]
+      },
+      "distortion_coefficients": {
+        "k1": -0.35,
+        "k2": 0.12,
+        "k3": 0.0,
+        "p1": 0.0,
+        "p2": 0.0
+      },
+      "notes": "Wide FOV mode (155 deg). Significant barrel distortion. Distortion coefficients are initial estimates — use auto-calibration to refine."
+    },
+    "dji_osmo_action_3_standard": {
+      "name": "DJI Osmo Action 3 (Standard FOV)",
+      "sensor_size_mm": [7.6, 5.7],
+      "focal_length_mm": 12.7,
+      "fov_degrees": 90,
+      "aperture": "f/2.8",
+      "resolutions": {
+        "4k_120": [3840, 2160],
+        "1080_60": [1920, 1080],
+        "1080_240": [1920, 1080]
+      },
+      "distortion_coefficients": {
+        "k1": -0.05,
+        "k2": 0.01,
+        "k3": 0.0,
+        "p1": 0.0,
+        "p2": 0.0
+      },
+      "notes": "Standard FOV mode (~90 deg). In-camera crop + digital correction reduces effective distortion to near-rectilinear."
+    },
+    "generic_action_cam": {
+      "name": "Generic Action Camera",
+      "sensor_size_mm": [6.17, 4.55],
+      "focal_length_mm": 3.0,
+      "fov_degrees": 120,
+      "aperture": "f/2.8",
+      "resolutions": {
+        "1080_60": [1920, 1080]
+      },
+      "distortion_coefficients": {
+        "k1": -0.25,
+        "k2": 0.06,
+        "k3": 0.0,
+        "p1": 0.0,
+        "p2": 0.0
+      },
+      "notes": "Generic wide-angle action camera. Use as starting point if your camera isn't listed."
+    },
+    "custom": {
+      "name": "Custom Camera",
+      "sensor_size_mm": null,
+      "focal_length_mm": null,
+      "fov_degrees": null,
+      "aperture": null,
+      "resolutions": {},
+      "distortion_coefficients": {
+        "k1": 0.0,
+        "k2": 0.0,
+        "k3": 0.0,
+        "p1": 0.0,
+        "p2": 0.0
+      },
+      "notes": "User-provided parameters. Set sensor_size_mm and focal_length_mm, or let auto-calibration fit focal_length_px directly."
+    }
+  }
+}

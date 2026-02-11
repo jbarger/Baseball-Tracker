@@ -21,6 +21,9 @@ class Detection:
     x2: float
     y2: float
     frame_idx: int = 0
+    # Detection source for handoff tracking
+    # "yolo" = standard YOLO detection, "machine_exit" = ME background subtraction
+    source: str = "yolo"
 
     @property
     def cx(self) -> float:
