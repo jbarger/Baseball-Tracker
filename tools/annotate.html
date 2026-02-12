@@ -339,11 +339,17 @@
 
   <div class="tool-group">
     <label>Mode</label>
-    <button class="btn active" id="btn-roi" onclick="setMode('roi')">1: ROI Polygon</button>
-    <button class="btn" id="btn-machine" onclick="setMode('machine')">2: Machine BBox</button>
-    <button class="btn" id="btn-home" onclick="setMode('home')">3: Home Plate</button>
-    <button class="btn" id="btn-ball" onclick="setMode('ball')">4: Ball Tracking</button>
-    <button class="btn" id="btn-calibrate" onclick="setMode('calibrate')">5: Calibrate</button>
+    <button class="btn active" id="btn-high-calibration" onclick="setHighMode('calibration')">Calibration</button>
+    <button class="btn" id="btn-high-operation" onclick="setHighMode('operation')">Operation</button>
+  </div>
+
+  <div class="tool-group" id="sub-mode-group">
+    <label>Sub</label>
+    <button class="btn active" id="btn-roi" onclick="setSubMode('roi')">ROI</button>
+    <button class="btn" id="btn-machine" onclick="setSubMode('machine')">Machine</button>
+    <button class="btn" id="btn-home" onclick="setSubMode('home')">Home</button>
+    <button class="btn" id="btn-ball" onclick="setSubMode('ball')">Ball</button>
+    <button class="btn" id="btn-calibrate" onclick="setSubMode('calibrate')">Auto-Cal</button>
   </div>
 
   <div class="tool-group">
@@ -423,7 +429,8 @@
       <div class="stream-radio-group">
         <label><input type="radio" name="stream-source" value="off" checked onchange="onStreamSourceChange()"> Off</label>
         <label><input type="radio" name="stream-source" value="usb" onchange="onStreamSourceChange()"> USB Camera</label>
-        <label><input type="radio" name="stream-source" value="rtmp" onchange="onStreamSourceChange()"> RTMP Stream</label>
+        <label><input type="radio" name="stream-source" value="rtmp" onchange="onStreamSourceChange()"> RTMP</label>
+        <label><input type="radio" name="stream-source" value="video" onchange="onStreamSourceChange()"> Video File</label>
       </div>
 
       <!-- USB options -->
@@ -439,6 +446,24 @@
       <div class="stream-options" id="stream-rtmp-options" style="display:none;">
         <label>RTMP URL</label>
         <input type="text" id="stream-rtmp-url" value="rtmp://localhost:1935/live/stream" placeholder="rtmp://host:port/app/key">
+      </div>
+
+      <!-- Video file options -->
+      <div class="stream-options" id="stream-video-options" style="display:none;">
+        <label>Video path (inside Docker)</label>
+        <input type="text" id="stream-video-path" placeholder="/videos/clip.mov">
+        <div style="margin-top:4px; display:flex; gap:4px; align-items:center;">
+          <button class="btn" onclick="videoTogglePause()" style="padding:3px 6px; font-size:11px;" id="video-pause-btn">Pause</button>
+          <button class="btn" onclick="videoSeek(-60)" style="padding:3px 6px; font-size:11px;">-1s</button>
+          <button class="btn" onclick="videoSeek(60)" style="padding:3px 6px; font-size:11px;">+1s</button>
+          <select id="video-speed" onchange="videoSetSpeed(this.value)" style="padding:2px; background:#0d1b2a; color:#e0e0e0; border:1px solid #0f3460; font-size:11px;">
+            <option value="0.25">0.25x</option>
+            <option value="0.5">0.5x</option>
+            <option value="1" selected>1x</option>
+            <option value="2">2x</option>
+          </select>
+        </div>
+        <div id="video-progress" style="margin-top:4px; font-size:10px; color:#888;">Frame: 0 / 0</div>
       </div>
 
       <!-- Controls -->
@@ -571,6 +596,61 @@
     <div style="margin-top:6px; display:flex; gap:6px;">
       <button class="btn success" onclick="calCopyParams()">Copy JSON</button>
     </div>
+
+    <h3 style="margin-top:12px;">HUD Font Settings</h3>
+    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:4px; font-size:12px; margin-bottom:8px;">
+      <label style="color:#888;">Font Family</label>
+      <select id="hud-font-family" onchange="hudFontChanged()" style="width:100%; padding:2px 4px; background:#0d1b2a; color:#e0e0e0; border:1px solid #0f3460; border-radius:3px;">
+        <option value="simplex">Simplex (Default)</option>
+        <option value="plain">Plain</option>
+        <option value="duplex">Duplex</option>
+        <option value="complex">Complex</option>
+        <option value="triplex">Triplex</option>
+        <option value="script_simplex">Script Simplex</option>
+        <option value="script_complex">Script Complex</option>
+      </select>
+      <label style="color:#888;">Font Scale</label>
+      <div style="display:flex; align-items:center; gap:4px;">
+        <input type="range" id="hud-font-scale" min="0.3" max="1.5" step="0.05" value="0.55" oninput="hudFontChanged()" style="flex:1;">
+        <span id="hud-font-scale-val" style="font-size:11px; color:#ccc; min-width:28px;">0.55</span>
+      </div>
+      <label style="color:#888;">Thickness</label>
+      <select id="hud-font-thickness" onchange="hudFontChanged()" style="width:100%; padding:2px 4px; background:#0d1b2a; color:#e0e0e0; border:1px solid #0f3460; border-radius:3px;">
+        <option value="1">1 (Default)</option>
+        <option value="2">2</option>
+        <option value="3">3</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Operation mode panel -->
+  <div id="operation-panel" class="ball-track-panel">
+    <h3>Operation Mode</h3>
+    <p style="font-size:11px; color:#888; margin-bottom:8px;">
+      Start a camera or video file to begin detection. Events are detected automatically.
+    </p>
+
+    <h3>Current Pitch</h3>
+    <div id="current-pitch-stats" style="font-size:12px; background:#0d1b2a; padding:8px; border-radius:4px; margin-bottom:8px;">
+      <div style="display:flex; justify-content:space-between;">
+        <span style="color:#888;">Speed:</span>
+        <span id="op-speed" style="color:#00d4ff;">--</span>
+      </div>
+      <div style="display:flex; justify-content:space-between;">
+        <span style="color:#888;">Result:</span>
+        <span id="op-result" style="color:#888;">--</span>
+      </div>
+      <div style="display:flex; justify-content:space-between;">
+        <span style="color:#888;">State:</span>
+        <span id="op-state" style="color:#888;">IDLE</span>
+      </div>
+    </div>
+
+    <h3>Event Log</h3>
+    <div id="event-log" style="max-height:300px; overflow-y:auto; font-family:'Courier New',monospace; font-size:11px; background:#0d1b2a; padding:6px; border-radius:4px;">
+      No events yet.
+    </div>
+    <button class="btn" onclick="clearEventLog()" style="margin-top:4px; width:100%; font-size:11px;">Clear Log</button>
   </div>
 </div>
 
@@ -587,8 +667,9 @@
 // ============================================================
 // STATE
 // ============================================================
-let mode = 'roi';          // 'roi' | 'machine' | 'home' | 'ball'
-let img = null;            // loaded Image object
+let highMode = 'calibration';  // 'calibration' | 'operation'
+let mode = 'roi';              // 'roi' | 'machine' | 'home' | 'ball' | 'calibrate' | 'operation'
+let img = null;                // loaded Image object
 let imgW = 0, imgH = 0;
 
 // Annotation data (in image pixel coordinates)
@@ -667,34 +748,83 @@ function canvasScreenCoords(e) {
 }
 
 // ============================================================
-// MODE SWITCHING
+// MODE SWITCHING — TWO-LEVEL ARCHITECTURE
 // ============================================================
-function setMode(m) {
-  mode = m;
-  document.querySelectorAll('.toolbar .btn').forEach(b => {
-    if (b.id === 'btn-' + m) b.classList.add('active');
-    else if (b.id.startsWith('btn-')) b.classList.remove('active');
+function setHighMode(hm) {
+  highMode = hm;
+  document.getElementById('btn-high-calibration').classList.toggle('active', hm === 'calibration');
+  document.getElementById('btn-high-operation').classList.toggle('active', hm === 'operation');
+
+  // Show/hide sub-mode buttons
+  document.getElementById('sub-mode-group').style.display = (hm === 'calibration') ? 'flex' : 'none';
+
+  if (hm === 'operation') {
+    mode = 'operation';
+    document.getElementById('status-mode').textContent = 'Operation';
+    document.getElementById('cage-panels').style.display = 'none';
+    document.getElementById('ball-panel').className = 'ball-track-panel';
+    document.getElementById('calibrate-panel').className = 'ball-track-panel';
+    document.getElementById('operation-panel').className = 'ball-track-panel visible';
+    document.getElementById('btn-load-stills').style.display = 'none';
+    document.getElementById('status-frame-info').style.display = 'none';
+
+    // Auto-open stream panel in operation mode
+    const body = document.getElementById('stream-body');
+    const arrow = document.getElementById('stream-toggle-arrow');
+    if (!body.classList.contains('open')) {
+      body.classList.add('open');
+      arrow.classList.add('open');
+    }
+
+    // Start event polling
+    startEventPoll();
+  } else {
+    document.getElementById('operation-panel').className = 'ball-track-panel';
+    setSubMode(mode === 'operation' ? 'roi' : mode);
+    stopEventPoll();
+  }
+  draw();
+}
+
+function setSubMode(sm) {
+  mode = sm;
+  // Update sub-mode button active states
+  ['roi', 'machine', 'home', 'ball', 'calibrate'].forEach(m => {
+    const btn = document.getElementById('btn-' + m);
+    if (btn) btn.classList.toggle('active', m === sm);
   });
+
   const names = { roi: 'ROI Polygon', machine: 'Machine BBox', home: 'Home Plate', ball: 'Ball Tracking', calibrate: 'Calibrate' };
-  document.getElementById('status-mode').textContent = names[m];
+  document.getElementById('status-mode').textContent = names[sm] || sm;
 
   // Toggle panel visibility
-  const isCage = (m !== 'ball' && m !== 'calibrate');
+  const isCage = (sm !== 'ball' && sm !== 'calibrate');
   document.getElementById('cage-panels').style.display = isCage ? 'block' : 'none';
-  document.getElementById('ball-panel').className = (m === 'ball') ? 'ball-track-panel visible' : 'ball-track-panel';
-  document.getElementById('calibrate-panel').className = (m === 'calibrate') ? 'ball-track-panel visible' : 'ball-track-panel';
+  document.getElementById('ball-panel').className = (sm === 'ball') ? 'ball-track-panel visible' : 'ball-track-panel';
+  document.getElementById('calibrate-panel').className = (sm === 'calibrate') ? 'ball-track-panel visible' : 'ball-track-panel';
+  document.getElementById('operation-panel').className = 'ball-track-panel';
 
   // Toggle stills button visibility
-  document.getElementById('btn-load-stills').style.display = (m === 'ball') ? '' : 'none';
+  document.getElementById('btn-load-stills').style.display = (sm === 'ball') ? '' : 'none';
 
   // Toggle frame info in status bar
-  document.getElementById('status-frame-info').style.display = (m === 'ball') ? '' : 'none';
+  document.getElementById('status-frame-info').style.display = (sm === 'ball') ? '' : 'none';
 
   // In ball mode, show current ball frame
-  if (m === 'ball' && ballFrames.length > 0) {
+  if (sm === 'ball' && ballFrames.length > 0) {
     showBallFrame(ballCurrentIdx);
   } else {
     draw();
+  }
+}
+
+// Legacy setMode for keyboard shortcuts
+function setMode(m) {
+  if (m === 'operation') {
+    setHighMode('operation');
+  } else {
+    if (highMode !== 'calibration') setHighMode('calibration');
+    setSubMode(m);
   }
 }
 
@@ -1449,6 +1579,7 @@ function drawHint() {
     home: 'Click to place \u2022 Ctrl+click to move \u2022 Scroll=zoom \u2022 Space+drag=pan',
     ball: 'Click on ball \u2022 S=skip \u2022 \u2190\u2192=navigate \u2022 Ctrl+click=move \u2022 Scroll=zoom \u2022 Space+drag=pan',
     calibrate: 'Configure camera model & cage measurements \u2022 Load Config from server \u2022 Run Auto-Calibrate with GT data',
+    operation: 'View live detection \u2022 Events: pitch, plate crossing, hit/miss \u2022 Scroll=zoom \u2022 Space+drag=pan',
   };
   ctx.fillText(hints[mode] || '', 10, canvas.height - 6);
 }
@@ -1705,11 +1836,12 @@ document.addEventListener('keydown', e => {
     return;
   }
 
-  if (e.key === '1') setMode('roi');
-  else if (e.key === '2') setMode('machine');
-  else if (e.key === '3') setMode('home');
-  else if (e.key === '4') setMode('ball');
-  else if (e.key === '5') setMode('calibrate');
+  if (e.key === '1') { setHighMode('calibration'); setSubMode('roi'); }
+  else if (e.key === '2') { setHighMode('calibration'); setSubMode('machine'); }
+  else if (e.key === '3') { setHighMode('calibration'); setSubMode('home'); }
+  else if (e.key === '4') { setHighMode('calibration'); setSubMode('ball'); }
+  else if (e.key === '5') { setHighMode('calibration'); setSubMode('calibrate'); }
+  else if (e.key === '6') { setHighMode('operation'); }
   else if (e.key === 'z' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); undoLast(); }
   else if (e.key === 'Escape') clearCurrent();
   // Zoom shortcuts
@@ -2054,6 +2186,7 @@ function onStreamSourceChange() {
   const source = document.querySelector('input[name="stream-source"]:checked').value;
   document.getElementById('stream-usb-options').style.display = (source === 'usb') ? 'block' : 'none';
   document.getElementById('stream-rtmp-options').style.display = (source === 'rtmp') ? 'block' : 'none';
+  document.getElementById('stream-video-options').style.display = (source === 'video') ? 'block' : 'none';
   document.getElementById('stream-start-btn').disabled = (source === 'off');
 
   // Auto-detect USB cameras when USB is selected
@@ -2087,6 +2220,12 @@ async function streamDetectCameras() {
 async function streamStart() {
   const source = document.querySelector('input[name="stream-source"]:checked').value;
   if (source === 'off') return;
+
+  // Video files use a different API
+  if (source === 'video') {
+    videoStart();
+    return;
+  }
 
   const body = {source};
   if (source === 'usb') {
@@ -2273,8 +2412,232 @@ async function toggleDetection(enabled) {
   }
 }
 
-// Initialize cameras DB when page loads
+// ============================================================
+// VIDEO FILE CONTROLS
+// ============================================================
+async function videoStart() {
+  const path = document.getElementById('stream-video-path').value.trim();
+  if (!path) { alert('Enter a video file path'); return; }
+
+  document.getElementById('stream-start-btn').disabled = true;
+  document.getElementById('stream-status-text').textContent = 'Opening video...';
+
+  try {
+    const resp = await fetch('/api/video/open', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ path, speed: parseFloat(document.getElementById('video-speed').value) || 1.0 }),
+    });
+    const data = await resp.json();
+    if (!resp.ok) {
+      document.getElementById('stream-status-text').textContent = `Error: ${data.detail || 'failed'}`;
+      document.getElementById('stream-start-btn').disabled = false;
+      return;
+    }
+
+    // Video is active — connect MJPEG feed
+    streamActive = true;
+    streamImgReady = false;
+
+    streamImg.onload = function() {
+      if (!streamImgReady) {
+        streamImgReady = true;
+        if (!img) {
+          imgW = streamImg.naturalWidth;
+          imgH = streamImg.naturalHeight;
+          sizeCanvas();
+          resetView();
+          document.getElementById('placeholder').style.display = 'none';
+          canvas.style.display = 'block';
+        }
+        document.getElementById('status-image').textContent =
+          `${data.width}x${data.height} — VIDEO`;
+      }
+      draw();
+    };
+    streamImg.src = '/api/stream/feed?quality=80&t=' + Date.now();
+    startStreamRenderLoop();
+
+    document.getElementById('stream-dot').classList.add('active');
+    document.getElementById('stream-stop-btn').disabled = false;
+    document.getElementById('stream-snapshot-btn').disabled = false;
+    document.getElementById('stream-status-text').textContent =
+      `${data.width}x${data.height} @ ${data.nominal_fps}fps — ${data.source_info}`;
+
+    startStreamFPSPoll();
+    startVideoProgressPoll();
+  } catch (e) {
+    document.getElementById('stream-status-text').textContent = `Error: ${e.message}`;
+    document.getElementById('stream-start-btn').disabled = false;
+  }
+}
+
+async function videoTogglePause() {
+  try {
+    const resp = await fetch('/api/video/control', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ action: 'toggle_pause' }),
+    });
+    const data = await resp.json();
+    document.getElementById('video-pause-btn').textContent = data.paused ? 'Resume' : 'Pause';
+  } catch (e) { console.error('Pause error:', e); }
+}
+
+async function videoSeek(frameDelta) {
+  try {
+    const statusResp = await fetch('/api/video/status');
+    const status = await statusResp.json();
+    const newFrame = Math.max(0, (status.current_frame || 0) + frameDelta);
+    await fetch('/api/video/control', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ action: 'seek', frame: newFrame }),
+    });
+  } catch (e) { console.error('Seek error:', e); }
+}
+
+async function videoSetSpeed(speed) {
+  try {
+    await fetch('/api/video/control', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ action: 'speed', speed: parseFloat(speed) }),
+    });
+  } catch (e) { console.error('Speed error:', e); }
+}
+
+let _videoProgressId = null;
+function startVideoProgressPoll() {
+  if (_videoProgressId) clearInterval(_videoProgressId);
+  _videoProgressId = setInterval(async () => {
+    if (!streamActive) { clearInterval(_videoProgressId); _videoProgressId = null; return; }
+    try {
+      const resp = await fetch('/api/video/status');
+      const data = await resp.json();
+      if (data.total_frames) {
+        const pct = ((data.current_frame / data.total_frames) * 100).toFixed(1);
+        document.getElementById('video-progress').textContent =
+          `Frame: ${data.current_frame} / ${data.total_frames} (${pct}%)` +
+          (data.finished ? ' — FINISHED' : '') +
+          (data.paused ? ' — PAUSED' : '');
+      }
+    } catch (e) {}
+  }, 1000);
+}
+
+// ============================================================
+// HUD FONT CONFIG
+// ============================================================
+async function hudFontChanged() {
+  const family = document.getElementById('hud-font-family').value;
+  const scale = parseFloat(document.getElementById('hud-font-scale').value);
+  const thickness = parseInt(document.getElementById('hud-font-thickness').value);
+  document.getElementById('hud-font-scale-val').textContent = scale.toFixed(2);
+
+  try {
+    await fetch('/api/hud-config', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        font_family: family,
+        font_scale: scale,
+        font_thickness: thickness,
+        line_height: Math.round(scale * 40),
+      }),
+    });
+  } catch (e) {
+    // Server not available — that's OK
+  }
+}
+
+async function hudLoadConfig() {
+  try {
+    const resp = await fetch('/api/hud-config');
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.font_family) document.getElementById('hud-font-family').value = data.font_family;
+      if (data.font_scale) {
+        document.getElementById('hud-font-scale').value = data.font_scale;
+        document.getElementById('hud-font-scale-val').textContent = data.font_scale.toFixed(2);
+      }
+      if (data.font_thickness) document.getElementById('hud-font-thickness').value = data.font_thickness;
+    }
+  } catch (e) {}
+}
+
+// ============================================================
+// EVENT LOG (OPERATION MODE)
+// ============================================================
+let _eventPollId = null;
+let _lastEventFrame = 0;
+
+function startEventPoll() {
+  if (_eventPollId) clearInterval(_eventPollId);
+  _lastEventFrame = 0;
+  _eventPollId = setInterval(async () => {
+    if (highMode !== 'operation') { stopEventPoll(); return; }
+    try {
+      const resp = await fetch(`/api/events?since_frame=${_lastEventFrame}`);
+      const events = await resp.json();
+      if (events.length > 0) {
+        const logEl = document.getElementById('event-log');
+        if (logEl.textContent === 'No events yet.') logEl.innerHTML = '';
+
+        events.forEach(evt => {
+          const line = document.createElement('div');
+          line.style.marginBottom = '2px';
+
+          if (evt.type === 'pitch') {
+            line.style.color = '#00d4ff';
+            line.textContent = `[${evt.timestamp_s.toFixed(2)}s] PITCH @ (${evt.position_px[0].toFixed(0)}, ${evt.position_px[1].toFixed(0)})`;
+          } else if (evt.type === 'plate_crossing') {
+            line.style.color = '#ffcc00';
+            line.textContent = `[${evt.timestamp_s.toFixed(2)}s] PLATE CROSSING — ${evt.speed_mph ? evt.speed_mph + ' mph' : ''}`;
+            document.getElementById('op-speed').textContent = evt.speed_mph ? evt.speed_mph + ' mph' : '--';
+          } else if (evt.type === 'hit') {
+            line.style.color = '#00ff88';
+            line.textContent = `[${evt.timestamp_s.toFixed(2)}s] HIT! ${evt.speed_mph ? evt.speed_mph + ' mph' : ''}`;
+            document.getElementById('op-result').textContent = 'HIT!';
+            document.getElementById('op-result').style.color = '#00ff88';
+          } else if (evt.type === 'miss') {
+            line.style.color = '#e94560';
+            line.textContent = `[${evt.timestamp_s.toFixed(2)}s] MISS`;
+            document.getElementById('op-result').textContent = 'MISS';
+            document.getElementById('op-result').style.color = '#e94560';
+          }
+
+          logEl.appendChild(line);
+          logEl.scrollTop = logEl.scrollHeight;
+          _lastEventFrame = evt.frame_idx + 1;
+        });
+      }
+
+      // Update state display
+      const statusResp = await fetch('/api/stream/status');
+      const status = await statusResp.json();
+      if (status.detection && status.detection.state) {
+        document.getElementById('op-state').textContent = status.detection.state;
+      }
+    } catch (e) {}
+  }, 500);
+}
+
+function stopEventPoll() {
+  if (_eventPollId) { clearInterval(_eventPollId); _eventPollId = null; }
+}
+
+function clearEventLog() {
+  document.getElementById('event-log').innerHTML = 'No events yet.';
+  document.getElementById('op-speed').textContent = '--';
+  document.getElementById('op-result').textContent = '--';
+  document.getElementById('op-result').style.color = '#888';
+  _lastEventFrame = 0;
+}
+
+// Initialize cameras DB and HUD config when page loads
 calLoadCamerasDB();
+hudLoadConfig();
 
 // Init
 updateUI();

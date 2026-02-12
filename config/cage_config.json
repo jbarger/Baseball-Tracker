@@ -2,17 +2,17 @@
   "machine_type": "iron_mike_mp6",
   "machine_distance_ft": 60,
   "camera_model": "dji_osmo_action_3_wide",
-  "ball_type": "white_regulation",
+  "ball_type": "yellow_dimple",
   "calibration": {
-    "machine_bbox_px": null,
+    "machine_bbox_px": [972, 441, 1035, 522],
     "pixels_per_inch": null,
     "home_plate_px": null,
     "known_pitch_speed_mph": 47.5,
     "notes": "60-foot mound, cage sign reads 45-50mph. Machine bbox measured via annotate.html. known_pitch_speed_mph is midpoint of sign range, used to calibrate pixel-to-mph conversion."
   },
   "cage_geometry": {
-    "camera_height_ft": 5,
-    "camera_behind_plate_ft": 2,
+    "camera_height_ft": 2.4276,
+    "camera_behind_plate_ft": 0.0,
     "release_height_ft": 3.5,
     "strike_zone_height_ft": 2.5,
     "cage_length_ft": 70,
@@ -93,5 +93,18 @@
     "max_blob_area": 400,
     "max_aspect_ratio": 3.0,
     "min_confidence": 0.75
+  },
+  "event_detection": {
+    "home_plate_radius_px": 80,
+    "hit_check_frames": 15,
+    "hit_velocity_reversal_threshold": 5.0,
+    "display_duration_frames": 60,
+    "speed_display_duration_frames": 120
+  },
+  "hud": {
+    "font_family": "simplex",
+    "font_scale": 0.55,
+    "font_thickness": 1,
+    "line_height": 22
   }
 }
