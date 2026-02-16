@@ -4,12 +4,7 @@
   "camera_model": "dji_osmo_action_3_wide",
   "ball_type": "yellow_dimple",
   "calibration": {
-    "machine_bbox_px": [
-      972,
-      441,
-      1035,
-      522
-    ],
+    "machine_bbox_px": [972, 441, 1035, 522],
     "pixels_per_inch": null,
     "home_plate_px": null,
     "known_pitch_speed_mph": 47.5,
@@ -98,5 +93,18 @@
     "max_blob_area": 400,
     "max_aspect_ratio": 3.0,
     "min_confidence": 0.75
+  },
+  "event_detection": {
+    "home_plate_radius_px": 80,
+    "hit_check_frames": 15,
+    "hit_velocity_reversal_threshold": 5.0,
+    "display_duration_frames": 60,
+    "speed_display_duration_frames": 120
+  },
+  "hud": {
+    "font_family": "simplex",
+    "font_scale": 0.55,
+    "font_thickness": 1,
+    "line_height": 22
   }
 }
