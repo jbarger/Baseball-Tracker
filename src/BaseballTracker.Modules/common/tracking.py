@@ -250,6 +250,7 @@ class ObjectTracker:
         self.max_match_distance = max_match_distance
         self.max_missed_frames = max_missed_frames
         self._tracks: Dict[int, TrackedObject] = {}
+        self._completed_tracks: List[TrackedObject] = []  # all expired tracks
         self._next_id = 1
 
     def update(self, detections: list, frame_idx: int) -> List[TrackedObject]:
@@ -280,10 +281,24 @@ class ObjectTracker:
                 costs = np.zeros((len(track_ids), len(cls_dets)))
                 for i, tid in enumerate(track_ids):
                     track = cls_tracks[tid]
-                    # Use PREDICTED position for matching (not last raw position)
-                    pred_pos = track.predicted_position(
-                        frames_ahead=track.missed_frames + 1
-                    )
+                    # Use a simple linear prediction from raw positions (more reliable
+                    # for fast-moving balls than the Kalman state, which dampens too
+                    # aggressively for high-velocity objects like pitches)
+                    frames_ahead = track.missed_frames + 1
+                    if len(track.positions) >= 2:
+                        # Linear velocity from last two raw measurements
+                        px, py = track.positions[-1]
+                        qx, qy = track.positions[-2]
+                        fi = track.frame_indices[-1]
+                        fj = track.frame_indices[-2]
+                        df = max(fi - fj, 1)
+                        raw_vx = (px - qx) / df
+                        raw_vy = (py - qy) / df
+                        pred_pos = (px + raw_vx * frames_ahead,
+                                    py + raw_vy * frames_ahead)
+                    else:
+                        # Only one position — use Kalman prediction (no velocity yet)
+                        pred_pos = track.predicted_position(frames_ahead)
                     for j, det in enumerate(cls_dets):
                         dx = det.cx - pred_pos[0]
                         dy = det.cy - pred_pos[1]
@@ -332,28 +347,31 @@ class ObjectTracker:
                 # Create new tracks for unmatched detections
                 for j, det in enumerate(cls_dets):
                     if j not in used_dets:
-                        self._create_track(det, frame_idx)
+                        new_id = self._create_track(det, frame_idx)
+                        matched_track_ids.add(new_id)  # new tracks don't miss their birth frame
             else:
                 for det in cls_dets:
-                    self._create_track(det, frame_idx)
+                    new_id = self._create_track(det, frame_idx)
+                    matched_track_ids.add(new_id)
 
         # Increment missed frames for unmatched tracks
         for tid, track in self._tracks.items():
             if tid not in matched_track_ids:
                 track.missed_frames += 1
 
-        # Remove dead tracks
+        # Move dead tracks to completed history (don't discard them)
         dead_ids = [tid for tid, t in self._tracks.items()
                     if t.missed_frames >= self.max_missed_frames]
         for tid in dead_ids:
-            del self._tracks[tid]
+            self._completed_tracks.append(self._tracks.pop(tid))
 
         return list(self._tracks.values())
 
-    def _create_track(self, det, frame_idx: int):
-        """Create a new track from an unmatched detection."""
+    def _create_track(self, det, frame_idx: int) -> int:
+        """Create a new track from an unmatched detection. Returns the new track ID."""
+        new_id = self._next_id
         track = TrackedObject(
-            track_id=self._next_id,
+            track_id=new_id,
             cls_id=det.cls_id,
             cls_name=det.cls_name,
             positions=[(det.cx, det.cy)],
@@ -363,8 +381,9 @@ class ObjectTracker:
             sources=[getattr(det, 'source', 'yolo')],
         )
         track._init_state(det.cx, det.cy)
-        self._tracks[self._next_id] = track
+        self._tracks[new_id] = track
         self._next_id += 1
+        return new_id
 
     def get_ball_tracks(self) -> List[TrackedObject]:
         """Get active ball tracks (class 32)."""

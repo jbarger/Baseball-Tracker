@@ -83,9 +83,10 @@
   },
   "tracking": {
     "max_match_distance_px": 150,
-    "min_trajectory_frames": 3,
+    "min_trajectory_frames": 2,
     "contact_distance_px": 60,
-    "max_missed_frames": 10
+    "max_missed_frames": 10,
+    "min_speed_px_per_frame": 3.0
   },
   "machine_exit_detector": {
     "search_extend_right": 250,
