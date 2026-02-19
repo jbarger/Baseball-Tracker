@@ -23,9 +23,11 @@ services:
       - "8000:8000"
     environment:
       - PYTHONUNBUFFERED=1
+      - TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD=1
     volumes:
       - ./videos:/app/videos
       - ./models:/app/models
+      - ./config:/app/config
     networks:
       - baseball-net
 
