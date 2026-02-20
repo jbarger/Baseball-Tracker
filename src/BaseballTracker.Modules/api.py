@@ -1,6 +1,9 @@
 """
 Baseball Tracker - Python CV API
 """
+import asyncio
+
+import numpy as np
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -105,9 +108,31 @@ async def track_bat(request: TrackingRequest):
         logger.error(f"Bat tracking failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
+def _warmup_yolo():
+    """
+    Run one dummy YOLO inference on startup to trigger PyTorch JIT compilation.
+    Without this, the first 2+ real requests run at ~0.55s/call instead of ~0.11s/call
+    due to cold JIT graph compilation — a 5x penalty that makes a 264-frame video
+    take 80 seconds instead of 16.
+    """
+    from ball_tracking.tracker import _get_yolo_model, _load_cage_config
+    try:
+        cage_cfg = _load_cage_config()
+        model_name = cage_cfg.get("detection", {}).get("model", "yolov8n.pt")
+    except Exception:
+        model_name = "yolov8n.pt"
+    logger.info(f"Warming up YOLO model ({model_name})...")
+    model = _get_yolo_model(model_name)
+    dummy = np.zeros((640, 640, 3), dtype=np.uint8)
+    model(dummy, conf=0.05, verbose=False)
+    logger.info("YOLO warmup complete — first request will run at full speed")
+
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("Baseball Tracker CV API starting up...")
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _warmup_yolo)
 
 @app.on_event("shutdown")
 async def shutdown_event():
