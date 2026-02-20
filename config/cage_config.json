@@ -62,6 +62,7 @@
   ],
   "detection": {
     "model": "yolov8n.pt",
+    "frame_skip": 2,
     "confidence_thresholds": {
       "sports_ball": 0.15,
       "baseball_bat": 0.25,

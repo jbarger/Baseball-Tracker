@@ -345,6 +345,7 @@ class BallTracker:
         max_match_dist = track_cfg.get("max_match_distance_px", 150)
         max_missed = track_cfg.get("max_missed_frames", 10)
         min_speed_px = track_cfg.get("min_speed_px_per_frame", 3.0)
+        frame_skip = max(1, det_cfg.get("frame_skip", 2))  # run YOLO every Nth frame
 
         # --- Load calibration ---
         calibration = None
@@ -403,13 +404,21 @@ class BallTracker:
             logger.info("MachineExitDetector enabled")
 
         # --- Per-frame detection and tracking loop ---
-        logger.info(f"Processing {len(frames)} frames...")
+        logger.info(
+            f"Processing {len(frames)} frames (YOLO every {frame_skip} frame(s), "
+            f"~{len(frames) // frame_skip} inference calls)..."
+        )
         for frame_idx, frame in enumerate(frames):
-            # YOLO detection
-            yolo_results = model(frame, conf=0.05, verbose=False)
-            detections = _yolo_results_to_detections(yolo_results, frame_idx, allowed_classes)
+            detections = []
 
-            # Machine-exit detector (near-machine ball detection)
+            # YOLO detection — skip frames to reduce inference cost.
+            # The tracker's max_missed_frames handles gaps between detections.
+            if frame_idx % frame_skip == 0:
+                yolo_results = model(frame, conf=0.05, verbose=False)
+                detections = _yolo_results_to_detections(yolo_results, frame_idx, allowed_classes)
+
+            # Machine-exit detector runs every frame (cheap pixel-diff, critical for
+            # catching the ball leaving the machine before YOLO picks it up)
             if me_detector is not None:
                 me_result = me_detector.update(frame)
                 if me_result is not None:
