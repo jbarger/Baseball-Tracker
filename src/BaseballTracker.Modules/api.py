@@ -44,6 +44,7 @@ class BallTrackingResult(BaseModel):
     contact_frame: int
     trajectory_points: List[Point3D]
     confidence: float
+    overlay_video_path: Optional[str] = None
 
 class BatTrackingResult(BaseModel):
     bat_speed_mph: float

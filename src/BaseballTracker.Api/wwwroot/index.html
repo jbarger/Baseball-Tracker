@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Baseball Tracker</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 16px;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      margin-bottom: 8px;
+      color: #f8fafc;
+    }
+
+    .subtitle {
+      color: #64748b;
+      font-size: 0.9rem;
+      margin-bottom: 40px;
+    }
+
+    .card {
+      background: #1e2433;
+      border: 1px solid #2d3748;
+      border-radius: 12px;
+      padding: 28px;
+      width: 100%;
+      max-width: 540px;
+    }
+
+    /* Drop zone */
+    #drop-zone {
+      border: 2px dashed #3d4f6e;
+      border-radius: 8px;
+      padding: 40px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+    }
+
+    #drop-zone.drag-over {
+      border-color: #4f7cff;
+      background: rgba(79, 124, 255, 0.05);
+    }
+
+    #drop-zone .icon {
+      font-size: 2.5rem;
+      margin-bottom: 12px;
+      display: block;
+    }
+
+    #drop-zone p {
+      color: #94a3b8;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    #drop-zone strong {
+      color: #4f7cff;
+    }
+
+    #file-input {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    #file-name {
+      margin-top: 12px;
+      font-size: 0.85rem;
+      color: #a0aec0;
+      text-align: center;
+      min-height: 1.2em;
+      word-break: break-all;
+    }
+
+    /* Process button */
+    #process-btn {
+      display: block;
+      width: 100%;
+      margin-top: 20px;
+      padding: 12px;
+      background: #4f7cff;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.15s, opacity 0.15s;
+    }
+
+    #process-btn:hover:not(:disabled) { background: #3b6aee; }
+    #process-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    /* Status */
+    #status {
+      margin-top: 16px;
+      text-align: center;
+      font-size: 0.875rem;
+      min-height: 1.4em;
+    }
+
+    #status.error { color: #f87171; }
+    #status.info  { color: #94a3b8; }
+
+    /* Spinner */
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid #4f7cff44;
+      border-top-color: #4f7cff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: -3px;
+      margin-right: 6px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Results */
+    #results {
+      display: none;
+      margin-top: 28px;
+    }
+
+    #results h2 {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #f1f5f9;
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #2d3748;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .metric {
+      background: #141824;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+
+    .metric .label {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #64748b;
+      margin-bottom: 4px;
+    }
+
+    .metric .value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: #f8fafc;
+    }
+
+    .metric .unit {
+      font-size: 0.8rem;
+      font-weight: 400;
+      color: #94a3b8;
+      margin-left: 3px;
+    }
+
+    .metric.highlight .value { color: #4f7cff; }
+
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-top: 10px;
+    }
+
+    /* Overlay download */
+    #overlay-link-wrap {
+      display: none;
+      margin-top: 14px;
+      padding: 12px 16px;
+      background: #141824;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      font-size: 0.85rem;
+    }
+
+    #overlay-link-wrap p {
+      color: #94a3b8;
+      margin-bottom: 8px;
+    }
+
+    #overlay-link {
+      color: #4f7cff;
+      text-decoration: none;
+      word-break: break-all;
+    }
+
+    #overlay-link:hover { text-decoration: underline; }
+
+    /* Progress bar during upload */
+    #progress-bar-wrap {
+      display: none;
+      margin-top: 12px;
+    }
+
+    #progress-bar-bg {
+      background: #2d3748;
+      border-radius: 4px;
+      height: 4px;
+      overflow: hidden;
+    }
+
+    #progress-bar {
+      background: #4f7cff;
+      height: 100%;
+      width: 0%;
+      transition: width 0.1s;
+    }
+
+    #progress-label {
+      font-size: 0.75rem;
+      color: #64748b;
+      margin-top: 4px;
+      text-align: right;
+    }
+  </style>
+</head>
+<body>
+
+<h1>⚾ Baseball Tracker</h1>
+<p class="subtitle">Upload a swing video to analyse exit velocity and trajectory</p>
+
+<div class="card">
+  <div id="drop-zone">
+    <input type="file" id="file-input" accept="video/*">
+    <span class="icon">🎬</span>
+    <p><strong>Click to choose</strong> or drag &amp; drop a video file</p>
+    <p style="margin-top:6px;font-size:0.8rem">.mov · .mp4 · .avi · .mkv</p>
+  </div>
+  <div id="file-name"></div>
+
+  <div id="progress-bar-wrap">
+    <div id="progress-bar-bg"><div id="progress-bar"></div></div>
+    <div id="progress-label"></div>
+  </div>
+
+  <button id="process-btn" disabled>Process Video</button>
+  <div id="status" class="info"></div>
+
+  <div id="results">
+    <h2>Results</h2>
+    <div class="metric-grid">
+      <div class="metric highlight">
+        <div class="label">Exit Velocity</div>
+        <div class="value" id="r-velocity">—<span class="unit">mph</span></div>
+      </div>
+      <div class="metric">
+        <div class="label">Launch Angle</div>
+        <div class="value" id="r-launch">—<span class="unit">°</span></div>
+      </div>
+      <div class="metric">
+        <div class="label">Spray Angle</div>
+        <div class="value" id="r-spray">—<span class="unit">°</span></div>
+      </div>
+      <div class="metric">
+        <div class="label">Confidence</div>
+        <div class="value" id="r-conf">—<span class="unit">%</span></div>
+      </div>
+    </div>
+    <div class="meta-row">
+      <span>Contact frame: <span id="r-frame">—</span></span>
+      <span>Trajectory points: <span id="r-traj">—</span></span>
+    </div>
+
+    <div id="overlay-link-wrap">
+      <p>Debug overlay video written:</p>
+      <a id="overlay-link" href="#" target="_blank">—</a>
+    </div>
+  </div>
+</div>
+
+<script>
+  const fileInput   = document.getElementById('file-input');
+  const dropZone    = document.getElementById('drop-zone');
+  const fileName    = document.getElementById('file-name');
+  const processBtn  = document.getElementById('process-btn');
+  const statusEl    = document.getElementById('status');
+  const resultsEl   = document.getElementById('results');
+  const progressWrap= document.getElementById('progress-bar-wrap');
+  const progressBar = document.getElementById('progress-bar');
+  const progressLbl = document.getElementById('progress-label');
+
+  let selectedFile = null;
+
+  // ---- File selection ----
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length > 0) selectFile(fileInput.files[0]);
+  });
+
+  dropZone.addEventListener('dragover', e => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const files = e.dataTransfer.files;
+    if (files.length > 0) selectFile(files[0]);
+  });
+
+  function selectFile(file) {
+    selectedFile = file;
+    const mb = (file.size / 1024 / 1024).toFixed(1);
+    fileName.textContent = `${file.name}  (${mb} MB)`;
+    processBtn.disabled = false;
+    statusEl.textContent = '';
+    statusEl.className = 'info';
+    resultsEl.style.display = 'none';
+    document.getElementById('overlay-link-wrap').style.display = 'none';
+  }
+
+  // ---- Process ----
+  processBtn.addEventListener('click', async () => {
+    if (!selectedFile) return;
+
+    processBtn.disabled = true;
+    resultsEl.style.display = 'none';
+    document.getElementById('overlay-link-wrap').style.display = 'none';
+    setStatus('info', '<span class="spinner"></span>Uploading…');
+
+    const formData = new FormData();
+    formData.append('video', selectedFile);
+
+    let elapsedTimer = null;
+
+    try {
+      // Use XHR so we get upload progress
+      const result = await uploadWithProgress('/api/Swings/upload', formData,
+        pct => {
+          // Upload body progress
+          progressWrap.style.display = 'block';
+          progressBar.style.width = pct + '%';
+          progressLbl.textContent = `Uploading ${pct}%`;
+        },
+        () => {
+          // Upload body complete — server is now processing
+          progressWrap.style.display = 'none';
+          const analysisStart = Date.now();
+          setStatus('info', '<span class="spinner"></span>Analysing video… 0s');
+          elapsedTimer = setInterval(() => {
+            const secs = Math.round((Date.now() - analysisStart) / 1000);
+            setStatus('info', `<span class="spinner"></span>Analysing video… ${secs}s`);
+          }, 1000);
+        }
+      );
+
+      clearInterval(elapsedTimer);
+      progressWrap.style.display = 'none';
+
+      if (!result.ok) {
+        const err = await result.json().catch(() => ({ error: result.statusText }));
+        throw new Error(err.error || `HTTP ${result.status}`);
+      }
+
+      const data = await result.json();
+      showResults(data);
+      setStatus('info', '');
+    } catch (err) {
+      clearInterval(elapsedTimer);
+      progressWrap.style.display = 'none';
+      setStatus('error', `Error: ${err.message}`);
+    } finally {
+      processBtn.disabled = false;
+    }
+  });
+
+  function uploadWithProgress(url, formData, onProgress, onUploadComplete) {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', url);
+      xhr.timeout = 600000; // 10 minutes — CV processing can take 90+ seconds
+
+      xhr.upload.addEventListener('progress', e => {
+        if (e.lengthComputable) onProgress(Math.round(e.loaded / e.total * 100));
+      });
+
+      // Fires when the request body has been fully sent — server is now processing
+      xhr.upload.addEventListener('loadend', () => {
+        if (onUploadComplete) onUploadComplete();
+      });
+
+      xhr.addEventListener('load', () => {
+        resolve({
+          ok: xhr.status >= 200 && xhr.status < 300,
+          status: xhr.status,
+          statusText: xhr.statusText,
+          json: () => Promise.resolve(JSON.parse(xhr.responseText)),
+        });
+      });
+
+      xhr.addEventListener('error', () => reject(new Error('Network error')));
+      xhr.addEventListener('timeout', () => reject(new Error('Request timed out after 10 minutes')));
+      xhr.send(formData);
+    });
+  }
+
+  function showResults(data) {
+    const ball = data.ball || {};
+
+    // .NET re-serializes Python snake_case → camelCase (exitVelocityMph etc.)
+    // Fall back to snake_case in case the response comes directly from Python.
+    const exitVelocity   = ball.exitVelocityMph    ?? ball.exit_velocity_mph;
+    const launchAngle    = ball.launchAngleDegrees  ?? ball.launch_angle_degrees;
+    const sprayAngle     = ball.sprayAngleDegrees   ?? ball.spray_angle_degrees;
+    const confidence     = ball.confidence;
+    const contactFrame   = ball.contactFrame        ?? ball.contact_frame;
+    const trajPoints     = ball.trajectoryPoints    ?? ball.trajectory_points ?? [];
+    const overlayPath    = ball.overlayVideoPath    ?? ball.overlay_video_path;
+
+    document.getElementById('r-velocity').innerHTML =
+      `${fmt(exitVelocity)}<span class="unit"> mph</span>`;
+    document.getElementById('r-launch').innerHTML =
+      `${fmt(launchAngle)}<span class="unit">°</span>`;
+    document.getElementById('r-spray').innerHTML =
+      `${fmt(sprayAngle)}<span class="unit">°</span>`;
+    document.getElementById('r-conf').innerHTML =
+      `${confidence != null ? Math.round(confidence * 100) : '—'}<span class="unit">%</span>`;
+    document.getElementById('r-frame').textContent =
+      contactFrame != null ? contactFrame : '—';
+    document.getElementById('r-traj').textContent = trajPoints.length;
+
+    if (overlayPath) {
+      const wrap = document.getElementById('overlay-link-wrap');
+      const link = document.getElementById('overlay-link');
+      link.textContent = overlayPath;
+      link.href = '#';
+      link.onclick = e => { e.preventDefault(); };
+      wrap.style.display = 'block';
+    }
+
+    resultsEl.style.display = 'block';
+  }
+
+  function fmt(v) {
+    return v != null ? v : '—';
+  }
+
+  function setStatus(cls, html) {
+    statusEl.className = cls;
+    statusEl.innerHTML = html;
+  }
+</script>
+</body>
+</html>

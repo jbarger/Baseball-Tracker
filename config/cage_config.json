@@ -62,6 +62,7 @@
   ],
   "detection": {
     "model": "yolov8n.pt",
+    "frame_skip": 2,
     "confidence_thresholds": {
       "sports_ball": 0.15,
       "baseball_bat": 0.25,
@@ -99,5 +100,9 @@
     "max_blob_area": 400,
     "max_aspect_ratio": 3.0,
     "min_confidence": 0.75
+  },
+  "debug": {
+    "save_overlay_video": false,
+    "overlay_output_dir": "/app/videos/debug"
   }
 }

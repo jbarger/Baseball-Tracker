@@ -5,6 +5,16 @@ using BaseballTracker.Infrastructure.Python;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Raise upload limits for video files (default Kestrel limit is 30 MB)
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
+{
+    o.MultipartBodyLengthLimit = 500_000_000; // 500 MB
+});
+builder.WebHost.ConfigureKestrel(k =>
+{
+    k.Limits.MaxRequestBodySize = 500_000_000; // 500 MB
+});
+
 // Add services
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
@@ -49,6 +59,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.UseAuthorization();
 app.MapControllers();
 

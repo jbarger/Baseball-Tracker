@@ -72,7 +72,6 @@ public class SwingsController : ControllerBase
         {
             _logger.LogInformation("Processing swing video: {VideoPath}", request.VideoPath);
 
-            // Call Python CV service
             var ballResult = await _pythonBridge.TrackBallAsync(request.VideoPath);
             var batResult = await _pythonBridge.TrackBatAsync(request.VideoPath);
 
@@ -86,6 +85,48 @@ public class SwingsController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to process swing");
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Upload a video file from the browser and process it
+    /// </summary>
+    [HttpPost("upload")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [RequestSizeLimit(500_000_000)] // 500 MB
+    public async Task<ActionResult<object>> UploadAndProcess(IFormFile video)
+    {
+        if (video == null || video.Length == 0)
+            return BadRequest(new { error = "No video file provided" });
+
+        var uploadDir = "/app/videos/uploads";
+        Directory.CreateDirectory(uploadDir);
+
+        var ext = Path.GetExtension(video.FileName);
+        var savedPath = Path.Combine(uploadDir, $"{Guid.NewGuid()}{ext}");
+
+        try
+        {
+            _logger.LogInformation("Saving uploaded video ({Bytes} bytes) to {Path}",
+                video.Length, savedPath);
+
+            await using (var stream = System.IO.File.Create(savedPath))
+                await video.CopyToAsync(stream);
+
+            var ballResult = await _pythonBridge.TrackBallAsync(savedPath);
+            var batResult = await _pythonBridge.TrackBatAsync(savedPath);
+
+            // Clean up after Python has finished reading the file
+            try { System.IO.File.Delete(savedPath); } catch { }
+
+            return Ok(new { ball = ballResult, bat = batResult });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to process uploaded swing");
+            try { System.IO.File.Delete(savedPath); } catch { }
             return BadRequest(new { error = ex.Message });
         }
     }

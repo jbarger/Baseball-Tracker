@@ -14,7 +14,8 @@ COPY src/BaseballTracker.Modules/requirements.txt .
 # Install Python packages
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy modules
+# Copy modules (use --build-arg CACHEBUST=$(date +%s) to force re-copy)
+ARG CACHEBUST=1
 COPY src/BaseballTracker.Modules /app
 
 # Expose port
