@@ -13,8 +13,10 @@ import json
 import logging
 import math
 import os
+from datetime import datetime
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from common.calibration import load_calibration
@@ -192,6 +194,98 @@ def _estimate_contact_frame(track) -> int:
         speeds.append(math.sqrt(dx * dx + dy * dy) / max(df, 1))
     peak_idx = int(np.argmax(speeds))
     return frames[min(peak_idx + 1, len(frames) - 1)]
+
+
+def _render_overlay_video(
+    frames: list,
+    best_track,
+    contact_frame: int,
+    exit_velocity: float,
+    fps: float,
+    video_path: str,
+    output_dir: str,
+) -> str:
+    """
+    Write an annotated copy of the video showing the ball track overlay.
+
+    Draws on every frame:
+      - Green polyline connecting all tracked ball positions
+      - Yellow filled circle at each detected ball position
+      - White speed label ("XX.X mph") at each detection
+      - Grey frame number top-left
+      - Red "CONTACT" label + horizontal line at the contact frame
+
+    Returns the path to the written MP4.
+    """
+    if not frames:
+        raise ValueError("No frames to render overlay")
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    stem = Path(video_path).stem
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_path = str(Path(output_dir) / f"{stem}_overlay_{timestamp}.mp4")
+
+    h, w = frames[0].shape[:2]
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(out_path, fourcc, fps, (w, h))
+
+    # Build a lookup: frame_idx → (position, speed_mph)
+    frame_to_pos: dict = {}
+    for i, (pos, fi) in enumerate(zip(best_track.positions, best_track.frame_indices)):
+        speed = None
+        if i < len(best_track.speeds_3d_mph):
+            speed = best_track.speeds_3d_mph[i]
+        frame_to_pos[fi] = (pos, speed)
+
+    track_positions = best_track.positions  # list of (x, y) pixel tuples
+
+    for frame_idx, frame in enumerate(frames):
+        img = frame.copy()
+
+        # Draw track polyline (green)
+        # Only draw positions up to and including this frame
+        pts_so_far = [
+            (int(round(px)), int(round(py)))
+            for (px, py), fi in zip(best_track.positions, best_track.frame_indices)
+            if fi <= frame_idx
+        ]
+        if len(pts_so_far) >= 2:
+            for i in range(1, len(pts_so_far)):
+                cv2.line(img, pts_so_far[i - 1], pts_so_far[i], (0, 220, 0), 2, cv2.LINE_AA)
+
+        # Draw detection circle + speed label at this frame
+        if frame_idx in frame_to_pos:
+            (px, py), speed = frame_to_pos[frame_idx]
+            cx, cy = int(round(px)), int(round(py))
+            cv2.circle(img, (cx, cy), 10, (0, 220, 255), -1, cv2.LINE_AA)  # yellow filled
+            cv2.circle(img, (cx, cy), 10, (0, 0, 0), 1, cv2.LINE_AA)       # black outline
+            if speed is not None:
+                label = f"{speed:.1f} mph"
+                label_x = min(cx + 14, w - 80)
+                label_y = max(cy - 6, 16)
+                cv2.putText(img, label, (label_x, label_y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 0, 0), 3, cv2.LINE_AA)
+                cv2.putText(img, label, (label_x, label_y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 1, cv2.LINE_AA)
+
+        # Contact frame marker (red horizontal line + label)
+        if frame_idx == contact_frame:
+            cv2.line(img, (0, h // 2), (w, h // 2), (0, 0, 220), 2)
+            cv2.putText(img, f"CONTACT  {exit_velocity:.1f} mph", (12, h // 2 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 4, cv2.LINE_AA)
+            cv2.putText(img, f"CONTACT  {exit_velocity:.1f} mph", (12, h // 2 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 220), 2, cv2.LINE_AA)
+
+        # Frame number (top-left, grey)
+        cv2.putText(img, f"frame {frame_idx}", (8, 22),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (180, 180, 180), 1, cv2.LINE_AA)
+
+        writer.write(img)
+
+    writer.release()
+    logger.info(f"Overlay video written: {out_path}")
+    return out_path
 
 
 class BallTracker:
@@ -513,6 +607,24 @@ class BallTracker:
         if calibration is None or not calibration.has_3d:
             mean_conf = min(mean_conf, 0.6)
 
+        # --- Optional debug overlay video ---
+        debug_cfg = cage_cfg.get("debug", {})
+        overlay_video_path = None
+        if debug_cfg.get("save_overlay_video", False):
+            overlay_output_dir = debug_cfg.get("overlay_output_dir", "/app/videos/debug")
+            try:
+                overlay_video_path = _render_overlay_video(
+                    frames=frames,
+                    best_track=best_track,
+                    contact_frame=contact_frame,
+                    exit_velocity=exit_velocity,
+                    fps=fps,
+                    video_path=video_path,
+                    output_dir=overlay_output_dir,
+                )
+            except Exception as e:
+                logger.warning(f"Overlay video rendering failed (non-fatal): {e}")
+
         result = BallTrackingResult(
             exit_velocity_mph=round(exit_velocity, 1),
             launch_angle_degrees=round(launch_angle, 1),
@@ -520,6 +632,7 @@ class BallTracker:
             contact_frame=contact_frame,
             trajectory_points=trajectory_points,
             confidence=round(mean_conf, 3),
+            overlay_video_path=overlay_video_path,
         )
 
         logger.info(

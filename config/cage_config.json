@@ -99,5 +99,9 @@
     "max_blob_area": 400,
     "max_aspect_ratio": 3.0,
     "min_confidence": 0.75
+  },
+  "debug": {
+    "save_overlay_video": false,
+    "overlay_output_dir": "/app/videos/debug"
   }
 }
