@@ -28,6 +28,8 @@ services:
       - ./videos:/app/videos
       - ./models:/app/models
       - ./config:/app/config
+    security_opt:
+      - seccomp:unconfined
     networks:
       - baseball-net
 
