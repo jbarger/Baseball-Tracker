@@ -646,6 +646,31 @@ class BallTracker:
         if exit_velocity is None:
             exit_velocity = 0.0
 
+        # Pitch speed: compute directly from inter-position intervals across the
+        # first 2/3 of the track (ball approaching the plate = pitch phase).
+        # This avoids the accumulated speeds_3d_mph list which can include
+        # stale/coasted values, and uses the full position sequence directly.
+        pitch_speed = None
+        if calibration is not None and len(best_track.positions) >= 3:
+            n_pos = len(best_track.positions)
+            end_idx = max(3, (n_pos * 2) // 3)
+            interval_speeds = []
+            for i in range(1, end_idx):
+                p1 = best_track.positions[i - 1]
+                p2 = best_track.positions[i]
+                f1 = best_track.frame_indices[i - 1]
+                f2 = best_track.frame_indices[i]
+                dt = (f2 - f1) / fps if fps > 0 else 0.0
+                if dt > 0:
+                    s = calibration.to_mph_3d(p1[0], p1[1], p2[0], p2[1], dt)
+                    if s is not None and 1.0 < s < 150.0:  # sanity bounds
+                        interval_speeds.append(s)
+            if interval_speeds:
+                pitch_speed = float(np.median(interval_speeds))
+        # Fall back to exit_velocity if we couldn't compute from positions
+        if pitch_speed is None:
+            pitch_speed = exit_velocity
+
         launch_angle = _compute_launch_angle(best_track, calibration)
         spray_angle = _compute_spray_angle(best_track, calibration, frame_width)
         contact_frame = _estimate_contact_frame(best_track)
@@ -690,6 +715,7 @@ class BallTracker:
 
         result = BallTrackingResult(
             exit_velocity_mph=round(exit_velocity, 1),
+            pitch_speed_mph=round(pitch_speed, 1),
             launch_angle_degrees=round(launch_angle, 1),
             spray_angle_degrees=round(spray_angle, 1),
             contact_frame=contact_frame,
@@ -699,7 +725,8 @@ class BallTracker:
         )
 
         logger.info(
-            f"Ball tracking complete: {result.exit_velocity_mph} mph, "
+            f"Ball tracking complete: exit={result.exit_velocity_mph} mph, "
+            f"pitch={result.pitch_speed_mph} mph, "
             f"launch={result.launch_angle_degrees}°, "
             f"spray={result.spray_angle_degrees}°, "
             f"contact_frame={result.contact_frame}, "

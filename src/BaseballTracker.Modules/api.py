@@ -42,6 +42,7 @@ class Point3D(BaseModel):
 
 class BallTrackingResult(BaseModel):
     exit_velocity_mph: float
+    pitch_speed_mph: float
     launch_angle_degrees: float
     spray_angle_degrees: float
     contact_frame: int
