@@ -358,6 +358,9 @@ class BallTracker:
         max_match_dist = track_cfg.get("max_match_distance_px", 150)
         max_missed = track_cfg.get("max_missed_frames", 10)
         min_speed_px = track_cfg.get("min_speed_px_per_frame", 3.0)
+        # Minimum positions a completed track must have to trigger early exit.
+        # Much higher than min_traj_frames to avoid exiting on brief noise detections.
+        early_exit_min_frames = track_cfg.get("early_exit_min_frames", 10)
         frame_skip = max(1, det_cfg.get("frame_skip", 2))  # run YOLO every Nth frame
         inference_scale = float(det_cfg.get("inference_scale", 1.0))  # downscale before YOLO
 
@@ -486,9 +489,11 @@ class BallTracker:
 
             # Early exit: once a qualifying ball track has completed (expired),
             # we've seen the full pitch — no need to process remaining frames.
+            # Use early_exit_min_frames (not min_traj_frames) to ignore brief noise
+            # detections that complete early (e.g. 2-4 frame false positives).
             qualifying_completed = [
                 t for t in obj_tracker._completed_tracks
-                if t.cls_id == _CLS_SPORTS_BALL and len(t.positions) >= min_traj_frames
+                if t.cls_id == _CLS_SPORTS_BALL and len(t.positions) >= early_exit_min_frames
             ]
             if qualifying_completed:
                 logger.info(
