@@ -143,7 +143,10 @@ def _warmup_yolo():
             pt_model = _get_yolo_model(model_name)
             logger.info("Exporting YOLO to ONNX for faster CPU inference...")
             exported = pt_model.export(format="onnx", imgsz=640)
-            shutil.copy(str(exported), str(onnx_path))
+            try:
+                shutil.copy(str(exported), str(onnx_path))
+            except shutil.SameFileError:
+                pass  # ultralytics already saved to the target path
             logger.info(f"ONNX model saved to {onnx_path}")
             from ultralytics import YOLO as _YOLO
             onnx_model = _YOLO(str(onnx_path))
