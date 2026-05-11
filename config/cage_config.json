@@ -61,8 +61,9 @@
     ]
   ],
   "detection": {
-    "model": "yolov8n.pt",
+    "model": "/app/models/yolov8n.pt",
     "frame_skip": 2,
+    "inference_scale": 0.333,
     "confidence_thresholds": {
       "sports_ball": 0.15,
       "baseball_bat": 0.25,

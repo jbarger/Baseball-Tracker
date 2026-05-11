@@ -5,6 +5,7 @@ namespace BaseballTracker.Core.Models;
 /// </summary>
 public record BallTrackingResult(
     double ExitVelocityMph,
+    double PitchSpeedMph,
     double LaunchAngleDegrees,
     double SprayAngleDegrees,
     int ContactFrame,

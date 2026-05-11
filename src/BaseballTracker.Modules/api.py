@@ -42,6 +42,7 @@ class Point3D(BaseModel):
 
 class BallTrackingResult(BaseModel):
     exit_velocity_mph: float
+    pitch_speed_mph: float
     launch_angle_degrees: float
     spray_angle_degrees: float
     contact_frame: int
@@ -110,22 +111,58 @@ async def track_bat(request: TrackingRequest):
 
 def _warmup_yolo():
     """
-    Run one dummy YOLO inference on startup to trigger PyTorch JIT compilation.
-    Without this, the first 2+ real requests run at ~0.55s/call instead of ~0.11s/call
-    due to cold JIT graph compilation — a 5x penalty that makes a 264-frame video
-    take 80 seconds instead of 16.
+    Export yolov8n.pt → yolov8n.onnx on first run (saved to /app/models/ volume so it
+    persists across container restarts), then load the ONNX model and swap it into the
+    module singleton. ONNX Runtime on CPU is ~2x faster than PyTorch inference.
+
+    Also warms up the model with a dummy inference to trigger any JIT/compile work,
+    so the first real request runs at full speed.
     """
-    from ball_tracking.tracker import _get_yolo_model, _load_cage_config
+    import shutil
+    from pathlib import Path
+    from ball_tracking.tracker import _get_yolo_model, _load_cage_config, _set_yolo_model
+
     try:
         cage_cfg = _load_cage_config()
         model_name = cage_cfg.get("detection", {}).get("model", "yolov8n.pt")
     except Exception:
         model_name = "yolov8n.pt"
-    logger.info(f"Warming up YOLO model ({model_name})...")
-    model = _get_yolo_model(model_name)
-    dummy = np.zeros((640, 640, 3), dtype=np.uint8)
-    model(dummy, conf=0.05, verbose=False)
-    logger.info("YOLO warmup complete — first request will run at full speed")
+
+    models_dir = Path("/app/models")
+    onnx_stem = Path(model_name).stem
+    onnx_path = models_dir / f"{onnx_stem}.onnx"
+
+    try:
+        models_dir.mkdir(parents=True, exist_ok=True)
+
+        if onnx_path.exists():
+            logger.info(f"Loading cached ONNX model: {onnx_path}")
+            from ultralytics import YOLO as _YOLO
+            onnx_model = _YOLO(str(onnx_path))
+        else:
+            logger.info(f"Loading YOLO model ({model_name}) for ONNX export...")
+            pt_model = _get_yolo_model(model_name)
+            logger.info("Exporting YOLO to ONNX for faster CPU inference...")
+            exported = pt_model.export(format="onnx", imgsz=640)
+            try:
+                shutil.copy(str(exported), str(onnx_path))
+            except shutil.SameFileError:
+                pass  # ultralytics already saved to the target path
+            logger.info(f"ONNX model saved to {onnx_path}")
+            from ultralytics import YOLO as _YOLO
+            onnx_model = _YOLO(str(onnx_path))
+
+        dummy = np.zeros((640, 640, 3), dtype=np.uint8)
+        onnx_model(dummy, conf=0.05, verbose=False)
+        _set_yolo_model(onnx_model)
+        logger.info("YOLO warmup complete (ONNX) — first request will run at full speed")
+
+    except Exception as e:
+        logger.warning(f"ONNX export/load failed ({e}), falling back to PT model warmup")
+        model = _get_yolo_model(model_name)
+        dummy = np.zeros((640, 640, 3), dtype=np.uint8)
+        model(dummy, conf=0.05, verbose=False)
+        logger.info("YOLO warmup complete (PT fallback) — first request will run at full speed")
 
 
 @app.on_event("startup")

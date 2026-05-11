@@ -6,4 +6,5 @@ uvicorn[standard]==0.24.0
 pydantic==2.5.0
 ultralytics==8.0.200
 onnxruntime==1.16.0
+onnx==1.14.1
 python-multipart==0.0.6

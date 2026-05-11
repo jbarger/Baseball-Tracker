@@ -14,6 +14,11 @@ COPY src/BaseballTracker.Modules/requirements.txt .
 # Install Python packages
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Upgrade onnxruntime for ONNX IR v10 support (1.16.0 only supports IR<=9)
+# and add onnxscript which ultralytics 8.0.200 needs for ONNX export.
+# Done as a separate layer so the expensive pip install above stays cached.
+RUN pip install --no-cache-dir "onnxruntime==1.18.0" onnxscript
+
 # Copy modules (use --build-arg CACHEBUST=$(date +%s) to force re-copy)
 ARG CACHEBUST=1
 COPY src/BaseballTracker.Modules /app

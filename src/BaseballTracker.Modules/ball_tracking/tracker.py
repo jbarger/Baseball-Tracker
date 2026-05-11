@@ -81,6 +81,12 @@ def _get_yolo_model(model_name: str):
     return _yolo_model
 
 
+def _set_yolo_model(model):
+    """Replace the module-level YOLO singleton (used by warmup to swap in ONNX model)."""
+    global _yolo_model
+    _yolo_model = model
+
+
 def _load_cage_config() -> dict:
     if not _CAGE_CONFIG_PATH.exists():
         raise FileNotFoundError(
@@ -91,8 +97,14 @@ def _load_cage_config() -> dict:
         return json.load(f)
 
 
-def _yolo_results_to_detections(results, frame_idx: int, allowed_classes: list) -> list:
-    """Convert ultralytics YOLO result to list of Detection objects."""
+def _yolo_results_to_detections(results, frame_idx: int, allowed_classes: list,
+                                 coord_scale_x: float = 1.0,
+                                 coord_scale_y: float = 1.0) -> list:
+    """Convert ultralytics YOLO result to list of Detection objects.
+
+    coord_scale_x/y: multiply bbox coords by these factors to map from the
+    (possibly downscaled) inference frame back to original frame dimensions.
+    """
     detections = []
     if not results or len(results) == 0:
         return detections
@@ -110,7 +122,8 @@ def _yolo_results_to_detections(results, frame_idx: int, allowed_classes: list) 
             cls_id=cls_id,
             cls_name=_CLS_NAMES.get(cls_id, str(cls_id)),
             conf=conf,
-            x1=x1, y1=y1, x2=x2, y2=y2,
+            x1=x1 * coord_scale_x, y1=y1 * coord_scale_y,
+            x2=x2 * coord_scale_x, y2=y2 * coord_scale_y,
             frame_idx=frame_idx,
             source="yolo",
         ))
@@ -345,7 +358,11 @@ class BallTracker:
         max_match_dist = track_cfg.get("max_match_distance_px", 150)
         max_missed = track_cfg.get("max_missed_frames", 10)
         min_speed_px = track_cfg.get("min_speed_px_per_frame", 3.0)
+        # Minimum positions a completed track must have to trigger early exit.
+        # Much higher than min_traj_frames to avoid exiting on brief noise detections.
+        early_exit_min_frames = track_cfg.get("early_exit_min_frames", 10)
         frame_skip = max(1, det_cfg.get("frame_skip", 2))  # run YOLO every Nth frame
+        inference_scale = float(det_cfg.get("inference_scale", 1.0))  # downscale before YOLO
 
         # --- Load calibration ---
         calibration = None
@@ -406,16 +423,32 @@ class BallTracker:
         # --- Per-frame detection and tracking loop ---
         logger.info(
             f"Processing {len(frames)} frames (YOLO every {frame_skip} frame(s), "
+            f"scale={inference_scale:.3f}, "
             f"~{len(frames) // frame_skip} inference calls)..."
         )
+        last_ball_seen_frame = -1
         for frame_idx, frame in enumerate(frames):
             detections = []
 
             # YOLO detection — skip frames to reduce inference cost.
             # The tracker's max_missed_frames handles gaps between detections.
             if frame_idx % frame_skip == 0:
-                yolo_results = model(frame, conf=0.05, verbose=False)
-                detections = _yolo_results_to_detections(yolo_results, frame_idx, allowed_classes)
+                if inference_scale != 1.0:
+                    inf_w = int(frame_width * inference_scale)
+                    inf_h = int(frame_height * inference_scale)
+                    inf_frame = cv2.resize(frame, (inf_w, inf_h),
+                                          interpolation=cv2.INTER_LINEAR)
+                    coord_scale_x = frame_width / inf_w
+                    coord_scale_y = frame_height / inf_h
+                else:
+                    inf_frame = frame
+                    coord_scale_x = 1.0
+                    coord_scale_y = 1.0
+                yolo_results = model(inf_frame, conf=0.05, verbose=False)
+                detections = _yolo_results_to_detections(
+                    yolo_results, frame_idx, allowed_classes,
+                    coord_scale_x, coord_scale_y,
+                )
 
             # Machine-exit detector runs every frame (cheap pixel-diff, critical for
             # catching the ball leaving the machine before YOLO picks it up)
@@ -433,6 +466,11 @@ class BallTracker:
             # Update tracker
             active_tracks = obj_tracker.update(detections, frame_idx)
 
+            # Track last frame where a ball was actively detected
+            for track in active_tracks:
+                if track.cls_id == _CLS_SPORTS_BALL and track.missed_frames == 0:
+                    last_ball_seen_frame = frame_idx
+
             # Compute 3D speed for each active ball track
             if calibration is not None:
                 for track in active_tracks:
@@ -448,6 +486,22 @@ class BallTracker:
                     dt = (f2 - f1) / fps if fps > 0 else 0.0
                     speed = calibration.to_mph_3d(p1[0], p1[1], p2[0], p2[1], dt)
                     track.speeds_3d_mph.append(speed)
+
+            # Early exit: once a qualifying ball track has completed (expired),
+            # we've seen the full pitch — no need to process remaining frames.
+            # Use early_exit_min_frames (not min_traj_frames) to ignore brief noise
+            # detections that complete early (e.g. 2-4 frame false positives).
+            qualifying_completed = [
+                t for t in obj_tracker._completed_tracks
+                if t.cls_id == _CLS_SPORTS_BALL and len(t.positions) >= early_exit_min_frames
+            ]
+            if qualifying_completed:
+                logger.info(
+                    f"Early exit: qualifying ball track completed at frame {frame_idx} "
+                    f"(processed {frame_idx + 1}/{len(frames)} frames)"
+                )
+                frames = frames[:frame_idx + 1]
+                break
 
         # --- Extract results from best ball track ---
         # Include both active tracks and completed (expired) tracks
@@ -592,6 +646,31 @@ class BallTracker:
         if exit_velocity is None:
             exit_velocity = 0.0
 
+        # Pitch speed: compute directly from inter-position intervals across the
+        # first 2/3 of the track (ball approaching the plate = pitch phase).
+        # This avoids the accumulated speeds_3d_mph list which can include
+        # stale/coasted values, and uses the full position sequence directly.
+        pitch_speed = None
+        if calibration is not None and len(best_track.positions) >= 3:
+            n_pos = len(best_track.positions)
+            end_idx = max(3, (n_pos * 2) // 3)
+            interval_speeds = []
+            for i in range(1, end_idx):
+                p1 = best_track.positions[i - 1]
+                p2 = best_track.positions[i]
+                f1 = best_track.frame_indices[i - 1]
+                f2 = best_track.frame_indices[i]
+                dt = (f2 - f1) / fps if fps > 0 else 0.0
+                if dt > 0:
+                    s = calibration.to_mph_3d(p1[0], p1[1], p2[0], p2[1], dt)
+                    if s is not None and 1.0 < s < 150.0:  # sanity bounds
+                        interval_speeds.append(s)
+            if interval_speeds:
+                pitch_speed = float(np.median(interval_speeds))
+        # Fall back to exit_velocity if we couldn't compute from positions
+        if pitch_speed is None:
+            pitch_speed = exit_velocity
+
         launch_angle = _compute_launch_angle(best_track, calibration)
         spray_angle = _compute_spray_angle(best_track, calibration, frame_width)
         contact_frame = _estimate_contact_frame(best_track)
@@ -636,6 +715,7 @@ class BallTracker:
 
         result = BallTrackingResult(
             exit_velocity_mph=round(exit_velocity, 1),
+            pitch_speed_mph=round(pitch_speed, 1),
             launch_angle_degrees=round(launch_angle, 1),
             spray_angle_degrees=round(spray_angle, 1),
             contact_frame=contact_frame,
@@ -645,7 +725,8 @@ class BallTracker:
         )
 
         logger.info(
-            f"Ball tracking complete: {result.exit_velocity_mph} mph, "
+            f"Ball tracking complete: exit={result.exit_velocity_mph} mph, "
+            f"pitch={result.pitch_speed_mph} mph, "
             f"launch={result.launch_angle_degrees}°, "
             f"spray={result.spray_angle_degrees}°, "
             f"contact_frame={result.contact_frame}, "

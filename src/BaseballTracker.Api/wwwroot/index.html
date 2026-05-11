@@ -274,6 +274,10 @@
     <h2>Results</h2>
     <div class="metric-grid">
       <div class="metric highlight">
+        <div class="label">Pitch Speed</div>
+        <div class="value" id="r-pitch">—<span class="unit">mph</span></div>
+      </div>
+      <div class="metric highlight">
         <div class="label">Exit Velocity</div>
         <div class="value" id="r-velocity">—<span class="unit">mph</span></div>
       </div>
@@ -433,6 +437,7 @@
 
     // .NET re-serializes Python snake_case → camelCase (exitVelocityMph etc.)
     // Fall back to snake_case in case the response comes directly from Python.
+    const pitchSpeed     = ball.pitchSpeedMph       ?? ball.pitch_speed_mph;
     const exitVelocity   = ball.exitVelocityMph    ?? ball.exit_velocity_mph;
     const launchAngle    = ball.launchAngleDegrees  ?? ball.launch_angle_degrees;
     const sprayAngle     = ball.sprayAngleDegrees   ?? ball.spray_angle_degrees;
@@ -441,6 +446,8 @@
     const trajPoints     = ball.trajectoryPoints    ?? ball.trajectory_points ?? [];
     const overlayPath    = ball.overlayVideoPath    ?? ball.overlay_video_path;
 
+    document.getElementById('r-pitch').innerHTML =
+      `${fmt(pitchSpeed)}<span class="unit"> mph</span>`;
     document.getElementById('r-velocity').innerHTML =
       `${fmt(exitVelocity)}<span class="unit"> mph</span>`;
     document.getElementById('r-launch').innerHTML =
